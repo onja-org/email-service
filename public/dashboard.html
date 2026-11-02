@@ -1,0 +1,679 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Email delivery</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7; --surface: #fcfcfb;
+    --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+    --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
+    --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --s6:#008300; --s7:#6250d6; --s8:#e34948;
+    --other:#b5b3ab;
+    --good:#0ca30c; --warning:#fab219; --serious:#ec835a; --critical:#d03b3b; --good-text:#006300;
+    --wash: rgba(11,11,11,0.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page:#0d0d0d; --surface:#1a1a19;
+      --ink:#f0efec; --ink-2:#c3c2b7; --muted:#898781;
+      --grid:#2c2c2a; --axis:#383835; --border: rgba(255,255,255,0.10);
+      --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
+      --other:#5a5955; --good-text:#0ca30c; --wash: rgba(255,255,255,0.05);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page:#0d0d0d; --surface:#1a1a19;
+    --ink:#f0efec; --ink-2:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --axis:#383835; --border: rgba(255,255,255,0.10);
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
+    --other:#5a5955; --good-text:#0ca30c; --wash: rgba(255,255,255,0.05);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--page); color: var(--ink);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  a { color: inherit; }
+  main { max-width: 1240px; margin: 0 auto; padding: 20px 16px 48px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0; }
+  h2 { font-size: 14px; font-weight: 600; margin: 0; }
+  .sub { color: var(--ink-2); font-size: 13px; }
+  .muted { color: var(--muted); }
+
+  /* Filter row */
+  .filters { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 8px 0 16px; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); }
+  .seg button { appearance: none; border: 0; background: transparent; color: var(--ink-2); padding: 6px 12px; font: inherit; cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--border); }
+  .seg button:hover { background: var(--wash); }
+  .seg button[aria-pressed="true"] { color: var(--ink); font-weight: 600; background: var(--wash); }
+  select, input[type=password], button.plain {
+    font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; }
+  button.plain { cursor: pointer; }
+  button.plain:hover { background: var(--wash); }
+  .spacer { flex: 1; }
+
+  /* Cards */
+  .grid { display: grid; gap: 12px; }
+  .kpis { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom: 12px; }
+  .two { grid-template-columns: 1fr 1fr; }
+  @media (max-width: 760px) { .two { grid-template-columns: 1fr; } }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; min-width: 0; }
+  .card + .card, .grid + .grid, .grid + .card, .card + .grid { margin-top: 12px; }
+  .card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  .card.loading .body { opacity: .45; transition: opacity .15s; }
+  .body { position: relative; }
+
+  /* Stat tile */
+  .tile .label { color: var(--ink-2); font-size: 13px; }
+  .tile .value { font-size: 26px; font-weight: 600; line-height: 1.2; margin-top: 2px; }
+  .tile.hero .value { font-size: 48px; }
+  .tile .delta { font-size: 12px; color: var(--ink-2); margin-top: 2px; display: flex; align-items: center; gap: 6px; }
+  .delta .up-good, .delta .down-good { color: var(--good-text); }
+  .delta .up-bad, .delta .down-bad { color: var(--critical); }
+  .status { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink-2); }
+  .status i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .status.good i { background: var(--good); } .status.warning i { background: var(--warning); }
+  .status.serious i { background: var(--serious); } .status.critical i { background: var(--critical); }
+
+  /* Charts */
+  figure { margin: 0; }
+  svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .grid-line { stroke: var(--grid); stroke-width: 1; }
+  .baseline { stroke: var(--axis); stroke-width: 1; }
+  .tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .ref-line { stroke: var(--muted); stroke-width: 1; }
+  .ref-label { fill: var(--ink-2); font-size: 11px; }
+  .end-label { fill: var(--ink-2); font-size: 11px; font-weight: 600; }
+  .bar { shape-rendering: crispEdges; }
+  .bar.lift, .hit:hover + .bar { filter: brightness(1.12); }
+  .line { fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .area { opacity: .10; }
+  .dot { stroke: var(--surface); stroke-width: 2; }
+  .crosshair { stroke: var(--axis); stroke-width: 1; pointer-events: none; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--ink-2); margin-top: 8px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .legend i.line { width: 14px; height: 2px; border-radius: 1px; }
+  .empty { color: var(--muted); padding: 28px 0; text-align: center; font-size: 13px; }
+
+  /* Tooltip */
+  #tip { position: fixed; z-index: 10; pointer-events: none; display: none; min-width: 120px;
+    background: var(--surface); color: var(--ink); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.12); }
+  #tip .t { color: var(--ink-2); margin-bottom: 4px; }
+  #tip .r { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+  #tip .r b { font-variant-numeric: tabular-nums; }
+  #tip .r span { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); }
+  #tip .r i { width: 10px; height: 2px; display: inline-block; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+  th { color: var(--ink-2); font-weight: 500; font-size: 12px; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr:last-child td { border-bottom: 0; }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; margin-right: 6px; vertical-align: -1px; }
+  .chip { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--ink-2); }
+  .err { color: var(--ink-2); font-size: 12px; word-break: break-word; }
+  .toggle { font-size: 12px; }
+  .table-view { display: none; max-height: 320px; overflow: auto; }
+  .card.show-table .table-view { display: block; }
+  .card.show-table .chart-view { display: none; }
+
+  /* Token gate */
+  #gate { max-width: 420px; margin: 80px auto; }
+  #gate p { color: var(--ink-2); }
+  #gate form { display: flex; gap: 8px; }
+  #gate input { flex: 1; }
+  .banner { background: var(--surface); border: 1px solid var(--critical); border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; font-size: 13px; display: none; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Email delivery</h1>
+      <div class="sub" id="subtitle">Performance across all projects</div>
+    </div>
+    <div class="sub" id="updated"></div>
+  </header>
+
+  <section id="gate" class="card" hidden>
+    <h2>Admin token</h2>
+    <p>Enter the service's <code>ADMIN_TOKEN</code>. It is kept in this tab's session storage only.</p>
+    <form id="gate-form">
+      <input type="password" id="token" autocomplete="off" placeholder="admin token" required>
+      <button class="plain" type="submit">Open</button>
+    </form>
+  </section>
+
+  <div id="app" hidden>
+    <div class="banner" id="banner"></div>
+
+    <div class="filters" role="group" aria-label="Filters">
+      <div class="seg" id="ranges" aria-label="Date range">
+        <button data-hours="24">24 h</button>
+        <button data-hours="168" aria-pressed="true">7 days</button>
+        <button data-hours="720">30 days</button>
+        <button data-hours="2160">90 days</button>
+      </div>
+      <select id="project" aria-label="Project"><option value="">All projects</option></select>
+      <span class="spacer"></span>
+      <label class="sub"><input type="checkbox" id="auto" checked> Auto-refresh</label>
+      <button class="plain" id="refresh">Refresh</button>
+      <button class="plain" id="signout" title="Forget token">Sign out</button>
+    </div>
+
+    <div class="grid kpis" id="kpis"></div>
+
+    <div class="card" id="volume-card">
+      <div class="card-head">
+        <div><h2>Emails accepted by SES</h2><div class="sub" id="volume-sub"></div></div>
+        <label class="toggle sub"><input type="checkbox" class="table-toggle"> Table</label>
+      </div>
+      <div class="body">
+        <figure class="chart-view"><div id="volume-chart"></div><div class="legend" id="volume-legend"></div></figure>
+        <div class="table-view" id="volume-table"></div>
+      </div>
+    </div>
+
+    <div class="grid two">
+      <div class="card" id="bounce-card">
+        <div class="card-head">
+          <div><h2>Bounce rate</h2><div class="sub">Permanent bounces ÷ accepted. SES limit 5%.</div></div>
+          <label class="toggle sub"><input type="checkbox" class="table-toggle"> Table</label>
+        </div>
+        <div class="body">
+          <figure class="chart-view"><div id="bounce-chart"></div></figure>
+          <div class="table-view" id="bounce-table"></div>
+        </div>
+      </div>
+      <div class="card" id="complaint-card">
+        <div class="card-head">
+          <div><h2>Complaint rate</h2><div class="sub">Spam complaints ÷ accepted. SES limit 0.1%.</div></div>
+          <label class="toggle sub"><input type="checkbox" class="table-toggle"> Table</label>
+        </div>
+        <div class="body">
+          <figure class="chart-view"><div id="complaint-chart"></div></figure>
+          <div class="table-view" id="complaint-table"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="projects-card">
+      <div class="card-head"><h2>By project</h2><span class="sub" id="projects-sub"></span></div>
+      <div class="body" id="projects-table"></div>
+    </div>
+
+    <div class="card" id="problems-card">
+      <div class="card-head"><h2>Recent failures, bounces and complaints</h2><span class="sub">Latest 50 in range</span></div>
+      <div class="body" id="problems-table"></div>
+    </div>
+  </div>
+</main>
+<div id="tip" role="tooltip"></div>
+
+<script>
+(() => {
+  'use strict';
+  const $ = (s, el = document) => el.querySelector(s);
+  const SERIES = ['--s1','--s2','--s3','--s4','--s5','--s6','--s7'];
+  const MAX_SERIES = SERIES.length; // 8th slot and beyond fold into "Other"
+  const LIMITS = { bounce: 0.05, complaint: 0.001 };
+
+  // ---- state --------------------------------------------------------------
+  const state = { token: null, hours: 168, project: '', projects: [], timer: null, colorOf: new Map() };
+  const store = {
+    get: (k) => { try { return sessionStorage.getItem(k); } catch { return null; } },
+    set: (k, v) => { try { sessionStorage.setItem(k, v); } catch {} },
+    del: (k) => { try { sessionStorage.removeItem(k); } catch {} },
+  };
+
+  // ---- formatting ---------------------------------------------------------
+  const nf = new Intl.NumberFormat();
+  const fmtInt = (n) => nf.format(n ?? 0);
+  const compact = (n) => n == null ? '–' : Math.abs(n) >= 10000 ? new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(n) : nf.format(n);
+  const pct = (r, digits) => r == null ? '–' : (r * 100).toFixed(digits ?? (r < 0.01 ? 2 : 1)) + '%';
+  const dur = (s) => s == null ? '–' : s < 1 ? `${Math.round(s * 1000)} ms` : s < 90 ? `${s.toFixed(1)} s` : s < 5400 ? `${Math.round(s / 60)} min` : `${(s / 3600).toFixed(1)} h`;
+  const fmtTime = (iso, bucket) => {
+    const d = new Date(iso);
+    return bucket === 'hour'
+      ? d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric' })
+      : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  };
+  const fmtDateTime = (iso) => new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const ago = (iso) => { const s = (Date.now() - new Date(iso)) / 1000; return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`; };
+  const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+  // ---- DOM helpers (textContent only; all names come from the API) --------
+  const el = (tag, attrs = {}, children = []) => {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) { if (k === 'class') n.className = v; else if (k === 'text') n.textContent = v; else n.setAttribute(k, v); }
+    for (const c of children) n.append(c);
+    return n;
+  };
+  const svgEl = (tag, attrs = {}) => {
+    const n = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+    return n;
+  };
+  const clear = (n) => { while (n.firstChild) n.removeChild(n.firstChild); return n; };
+
+  // ---- tooltip ------------------------------------------------------------
+  const tip = $('#tip');
+  function showTip(x, y, title, rows) {
+    clear(tip);
+    tip.append(el('div', { class: 't', text: title }));
+    for (const r of rows) {
+      const key = el('i'); key.style.background = r.color || 'transparent';
+      tip.append(el('div', { class: 'r' }, [el('span', {}, [key, document.createTextNode(r.label)]), el('b', { text: r.value })]));
+    }
+    tip.style.display = 'block';
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    tip.style.left = Math.min(x + 14, window.innerWidth - w - 8) + 'px';
+    tip.style.top = Math.max(8, Math.min(y - h / 2, window.innerHeight - h - 8)) + 'px';
+  }
+  const hideTip = () => { tip.style.display = 'none'; };
+
+  // ---- API ----------------------------------------------------------------
+  async function api(path, params = {}) {
+    const url = new URL(path, location.origin);
+    for (const [k, v] of Object.entries(params)) if (v !== '' && v != null) url.searchParams.set(k, v);
+    const res = await fetch(url, { headers: { authorization: `Bearer ${state.token}` } });
+    if (res.status === 401) { signOut('Token rejected. Enter it again.'); throw new Error('unauthorized'); }
+    if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
+    return res.json();
+  }
+  function windowParams() {
+    const to = new Date();
+    const from = new Date(to.getTime() - state.hours * 3600_000);
+    return { from: from.toISOString(), to: to.toISOString(), project: state.project };
+  }
+
+  // ---- colors: fixed per project, in slug order, never reassigned ---------
+  function assignColors(projects) {
+    state.colorOf = new Map();
+    projects.slice().sort((a, b) => a.slug.localeCompare(b.slug)).forEach((p, i) => {
+      state.colorOf.set(p.slug, i < MAX_SERIES ? cssVar(SERIES[i]) : cssVar('--other'));
+    });
+  }
+  const colorOf = (slug) => state.colorOf.get(slug) || cssVar('--other');
+  const isOther = (slug) => state.colorOf.get(slug) === cssVar('--other');
+
+  // ---- KPI row ------------------------------------------------------------
+  function deltaNode(cur, prev, upIsGood, fmt) {
+    if (prev == null || cur == null || prev === 0) return el('span', { class: 'muted', text: 'no prior data' });
+    const change = (cur - prev) / Math.abs(prev);
+    const up = change >= 0;
+    const cls = up ? (upIsGood ? 'up-good' : 'up-bad') : (upIsGood ? 'down-bad' : 'down-good');
+    if (Math.abs(change) < 0.0005) return el('span', { class: 'muted', text: 'no change vs previous period' });
+    return el('span', {}, [el('span', { class: cls, text: `${up ? '▲' : '▼'} ${Math.abs(change * 100).toFixed(0)}%` }), document.createTextNode(` vs previous period (${fmt(prev)})`)]);
+  }
+  function statusNode(level, text) {
+    const attrs = { class: `status ${level}` };
+    if (!text) { attrs.title = 'over SES limit'; attrs['aria-label'] = 'over SES limit'; }
+    return el('span', attrs, [el('i'), document.createTextNode(text)]);
+  }
+  function rateStatus(rate, limit) {
+    if (rate == null) return statusNode('good', 'no data');
+    if (rate >= limit) return statusNode('critical', 'over SES limit');
+    if (rate >= limit * 0.6) return statusNode('serious', 'approaching limit');
+    if (rate >= limit * 0.3) return statusNode('warning', 'watch');
+    return statusNode('good', 'healthy');
+  }
+  function renderKpis(s) {
+    const c = s.current, p = s.previous;
+    const prevRates = {
+      delivery: p.accepted ? p.delivered / p.accepted : null,
+      bounce: p.accepted ? p.bounced / p.accepted : null,
+      complaint: p.accepted ? p.complained / p.accepted : null,
+    };
+    const tiles = [
+      { hero: true, label: 'Accepted by SES', value: compact(c.accepted), sub: deltaNode(c.accepted, p.accepted, true, compact) },
+      { label: 'Delivered', value: pct(s.rates.delivery), sub: s.rates.delivery == null && c.accepted > 0
+          ? el('span', { class: 'muted', text: 'needs SES event webhook' })
+          : deltaNode(s.rates.delivery, prevRates.delivery, true, (v) => pct(v)) },
+      { label: 'Bounce rate', value: pct(s.rates.bounce, 2), sub: rateStatus(s.rates.bounce, LIMITS.bounce) },
+      { label: 'Complaint rate', value: pct(s.rates.complaint, 3), sub: rateStatus(s.rates.complaint, LIMITS.complaint) },
+      { label: 'Failed', value: compact(c.failed), sub: deltaNode(c.failed, p.failed, false, compact) },
+      { label: 'Queue', value: compact(s.queue.queued + s.queue.sending), sub: el('span', { class: 'muted', text: s.queue.oldest_queued_seconds != null ? `oldest waiting ${dur(s.queue.oldest_queued_seconds)}` : 'empty' }) },
+      { label: 'Time to send (median)', value: dur(s.latency.p50), sub: el('span', { class: 'muted', text: `p95 ${dur(s.latency.p95)} · submit → SES accept` }) },
+    ];
+    const host = clear($('#kpis'));
+    for (const t of tiles) {
+      host.append(el('div', { class: `card tile${t.hero ? ' hero' : ''}` }, [
+        el('div', { class: 'label', text: t.label }),
+        el('div', { class: 'value', text: t.value }),
+        el('div', { class: 'delta' }, [t.sub]),
+      ]));
+    }
+  }
+
+  // ---- shared chart scaffolding -------------------------------------------
+  const M = { top: 12, right: 56, bottom: 26, left: 44 };
+  function niceMax(v) {
+    if (v <= 0) return 1;
+    const p = Math.pow(10, Math.floor(Math.log10(v)));
+    const n = v / p;
+    const m = n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10;
+    return m * p;
+  }
+  // Tick count that yields clean steps for a nice max: 2.5/5 → 5 ticks, 1/2/10 → 4 ticks.
+  function ticksFor(max) {
+    const m = max / Math.pow(10, Math.floor(Math.log10(max)));
+    return Math.abs(m - 2.5) < 1e-9 || Math.abs(m - 5) < 1e-9 ? 5 : 4;
+  }
+  function frame(host, width, height) {
+    const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}`, width, height, role: 'img' });
+    clear(host).append(svg);
+    return svg;
+  }
+  function yAxis(svg, yScale, max, width, fmt, ticks = 4) {
+    for (let i = 0; i <= ticks; i++) {
+      const v = (max / ticks) * i, y = yScale(v);
+      svg.append(svgEl('line', { class: i === 0 ? 'baseline' : 'grid-line', x1: M.left, x2: width - M.right, y1: y, y2: y }));
+      const t = svgEl('text', { class: 'tick', x: M.left - 8, y: y + 4, 'text-anchor': 'end' }); t.textContent = fmt(v); svg.append(t);
+    }
+  }
+  function xAxis(svg, buckets, xOf, height, bucketKind) {
+    const step = Math.max(1, Math.ceil(buckets.length / 8));
+    buckets.forEach((b, i) => {
+      if (i % step !== 0 && i !== buckets.length - 1) return;
+      const t = svgEl('text', { class: 'tick', x: xOf(i), y: height - M.bottom + 16, 'text-anchor': 'middle' });
+      t.textContent = fmtTime(b, bucketKind); svg.append(t);
+    });
+  }
+  const chartWidth = (host) => Math.max(320, host.clientWidth || host.parentElement.clientWidth || 600);
+
+  // Fill every bucket in [from, to) so gaps render as zero instead of vanishing.
+  function bucketRange(fromIso, toIso, kind) {
+    const out = [], d = new Date(fromIso);
+    if (kind === 'hour') d.setUTCMinutes(0, 0, 0); else d.setUTCHours(0, 0, 0, 0);
+    const end = new Date(toIso).getTime();
+    while (d.getTime() < end) { out.push(d.toISOString()); kind === 'hour' ? d.setUTCHours(d.getUTCHours() + 1) : d.setUTCDate(d.getUTCDate() + 1); }
+    return out;
+  }
+
+  // ---- stacked columns: volume by project ---------------------------------
+  function renderVolume(ts, win) {
+    const host = $('#volume-chart');
+    const buckets = bucketRange(win.from, win.to, ts.bucket);
+    const idx = new Map(buckets.map((b, i) => [b, i]));
+    const slugs = [...new Set(ts.rows.map((r) => r.project))].sort();
+    const visible = slugs.filter((s) => !isOther(s));
+    const hasOther = slugs.length > visible.length;
+    const series = [...visible, ...(hasOther ? ['Other'] : [])];
+    const data = series.map(() => new Array(buckets.length).fill(0));
+    for (const r of ts.rows) {
+      const bi = idx.get(r.bucket); if (bi == null) continue;
+      const si = isOther(r.project) ? series.length - 1 : series.indexOf(r.project);
+      data[si][bi] += r.accepted;
+    }
+    const totals = buckets.map((_, i) => data.reduce((a, s) => a + s[i], 0));
+    const total = totals.reduce((a, b) => a + b, 0);
+    $('#volume-sub').textContent = total ? `${fmtInt(total)} in range, per ${ts.bucket}` : 'No emails in range';
+
+    const width = chartWidth(host), height = 260;
+    const svg = frame(host, width, height);
+    const legend = clear($('#volume-legend'));
+    if (!total) { clear(host).append(el('div', { class: 'empty', text: 'Nothing sent in this range.' })); return; }
+
+    const max = niceMax(Math.max(...totals));
+    const plotW = width - M.left - M.right, plotH = height - M.top - M.bottom;
+    const slot = plotW / buckets.length;
+    const barW = Math.min(24, Math.max(2, slot - 2 * Math.max(1, slot * 0.2)));
+    const xOf = (i) => M.left + slot * i + slot / 2;
+    const yScale = (v) => M.top + plotH - (v / max) * plotH;
+    yAxis(svg, yScale, max, width, compact, ticksFor(max));
+    xAxis(svg, buckets, xOf, height, ts.bucket);
+
+    const GAP = 2;
+    buckets.forEach((b, i) => {
+      let y0 = yScale(0);
+      series.forEach((name, si) => {
+        const v = data[si][i]; if (!v) return;
+        const top = yScale(v) - (yScale(0) - y0); // stack height
+        const h = y0 - top;
+        const isTop = series.slice(si + 1).every((_, k) => !data[si + 1 + k][i]);
+        const r = svgEl('rect', { class: 'bar', x: xOf(i) - barW / 2, y: top, width: barW, height: Math.max(0, h - (isTop ? 0 : GAP)),
+          fill: name === 'Other' ? cssVar('--other') : colorOf(name), rx: isTop ? 4 : 0 });
+        if (isTop && h < 4) r.setAttribute('rx', 0);
+        svg.append(r);
+        y0 = top;
+      });
+      // transparent hit target per bucket, wider than the bar
+      const hit = svgEl('rect', { x: M.left + slot * i, y: M.top, width: slot, height: plotH, fill: 'transparent', tabindex: 0 });
+      const rows = series.map((name, si) => ({ label: name, value: fmtInt(data[si][i]), color: name === 'Other' ? cssVar('--other') : colorOf(name) }))
+        .filter((r) => r.value !== '0');
+      rows.push({ label: 'Total', value: fmtInt(totals[i]) });
+      const on = (e) => { const p = hit.getBoundingClientRect(); showTip(e?.clientX ?? p.right, e?.clientY ?? p.top, fmtTime(b, ts.bucket), rows); };
+      hit.addEventListener('pointermove', on); hit.addEventListener('focus', () => on()); hit.addEventListener('pointerleave', hideTip); hit.addEventListener('blur', hideTip);
+      svg.append(hit);
+    });
+
+    if (series.length > 1) for (const name of series) {
+      const i = el('i'); i.style.background = name === 'Other' ? cssVar('--other') : colorOf(name);
+      legend.append(el('span', {}, [i, document.createTextNode(name)]));
+    }
+
+    // table twin
+    const table = el('table');
+    table.append(el('thead', {}, [el('tr', {}, [el('th', { text: 'Period' }), ...series.map((s) => el('th', { class: 'num', text: s })), el('th', { class: 'num', text: 'Total' })])]));
+    const tb = el('tbody');
+    buckets.forEach((b, i) => tb.append(el('tr', {}, [el('td', { text: fmtTime(b, ts.bucket) }), ...series.map((_, si) => el('td', { class: 'num', text: fmtInt(data[si][i]) })), el('td', { class: 'num', text: fmtInt(totals[i]) })])));
+    table.append(tb);
+    clear($('#volume-table')).append(table);
+  }
+
+  // ---- single-series rate line with SES reference line --------------------
+  function renderRate(kind, ts, win) {
+    const host = $(`#${kind}-chart`), tableHost = $(`#${kind}-table`);
+    const buckets = bucketRange(win.from, win.to, ts.bucket);
+    const acc = new Array(buckets.length).fill(0), bad = new Array(buckets.length).fill(0);
+    const idx = new Map(buckets.map((b, i) => [b, i]));
+    for (const r of ts.rows) { const i = idx.get(r.bucket); if (i == null) continue; acc[i] += r.accepted; bad[i] += kind === 'bounce' ? r.bounced : r.complained; }
+    const rate = buckets.map((_, i) => acc[i] ? bad[i] / acc[i] : null);
+    const limit = LIMITS[kind];
+    const width = chartWidth(host), height = 200;
+    const svg = frame(host, width, height);
+    if (!acc.some(Boolean)) { clear(host).append(el('div', { class: 'empty', text: 'Nothing sent in this range.' })); clear(tableHost); return; }
+
+    const maxRate = Math.max(limit * 1.25, ...rate.filter((v) => v != null));
+    const max = niceMax(maxRate * 100) / 100;
+    const plotW = width - M.left - M.right, plotH = height - M.top - M.bottom;
+    const xOf = (i) => M.left + (buckets.length === 1 ? plotW / 2 : (plotW * i) / (buckets.length - 1));
+    const yScale = (v) => M.top + plotH - (v / max) * plotH;
+    yAxis(svg, yScale, max, width, (v) => pct(v, max < 0.01 ? 2 : 1), ticksFor(max));
+    xAxis(svg, buckets, xOf, height, ts.bucket);
+
+    // SES limit: a solid hairline with a label, not a dash
+    svg.append(svgEl('line', { class: 'ref-line', x1: M.left, x2: width - M.right, y1: yScale(limit), y2: yScale(limit) }));
+    const rl = svgEl('text', { class: 'ref-label', x: width - M.right + 6, y: yScale(limit) + 4 }); rl.textContent = `limit ${pct(limit, kind === 'bounce' ? 0 : 1)}`; svg.append(rl);
+
+    const color = cssVar('--s1');
+    const pts = rate.map((v, i) => (v == null ? null : [xOf(i), yScale(v)]));
+    let d = '', areaD = '';
+    let segStart = null;
+    pts.forEach((p, i) => {
+      if (!p) { if (segStart != null) { areaD += ` L${pts[i - 1][0]},${yScale(0)} Z`; segStart = null; } return; }
+      if (segStart == null) { d += ` M${p[0]},${p[1]}`; areaD += ` M${p[0]},${yScale(0)} L${p[0]},${p[1]}`; segStart = i; } else { d += ` L${p[0]},${p[1]}`; areaD += ` L${p[0]},${p[1]}`; }
+    });
+    if (segStart != null) areaD += ` L${pts[pts.length - 1][0]},${yScale(0)} Z`;
+    svg.append(svgEl('path', { class: 'area', d: areaD, fill: color }));
+    svg.append(svgEl('path', { class: 'line', d, stroke: color }));
+    pts.forEach((p, i) => { if (p && (pts.length <= 31 || (!pts[i - 1] || !pts[i + 1]))) svg.append(svgEl('circle', { class: 'dot', cx: p[0], cy: p[1], r: 4, fill: color })); });
+    // direct label at the latest point
+    const lastIdx = rate.map((v, i) => (v == null ? -1 : i)).reduce((a, b) => Math.max(a, b), -1);
+    if (lastIdx >= 0) {
+      // Place the end label above the point unless that collides with the limit label; then below.
+      const py = yScale(rate[lastIdx]), ly = yScale(limit);
+      const above = py - 8, below = py + 16;
+      const y = Math.abs(above - (ly + 4)) < 14 ? below : above;
+      const t = svgEl('text', { class: 'end-label', x: xOf(lastIdx) + 8, y }); t.textContent = pct(rate[lastIdx], 2); svg.append(t);
+    }
+
+    // crosshair + tooltip for every X
+    const cross = svgEl('line', { class: 'crosshair', y1: M.top, y2: M.top + plotH, x1: -10, x2: -10, visibility: 'hidden' });
+    svg.append(cross);
+    const hit = svgEl('rect', { x: M.left, y: M.top, width: plotW, height: plotH, fill: 'transparent' });
+    hit.addEventListener('pointermove', (e) => {
+      const r = svg.getBoundingClientRect();
+      const px = ((e.clientX - r.left) / r.width) * width;
+      let best = 0; for (let i = 1; i < buckets.length; i++) if (Math.abs(xOf(i) - px) < Math.abs(xOf(best) - px)) best = i;
+      cross.setAttribute('x1', xOf(best)); cross.setAttribute('x2', xOf(best)); cross.setAttribute('visibility', 'visible');
+      showTip(e.clientX, e.clientY, fmtTime(buckets[best], ts.bucket), [
+        { label: kind === 'bounce' ? 'Bounce rate' : 'Complaint rate', value: pct(rate[best], 2), color },
+        { label: kind === 'bounce' ? 'Bounced' : 'Complaints', value: fmtInt(bad[best]) },
+        { label: 'Accepted', value: fmtInt(acc[best]) },
+      ]);
+    });
+    hit.addEventListener('pointerleave', () => { cross.setAttribute('visibility', 'hidden'); hideTip(); });
+    svg.append(hit);
+
+    const table = el('table');
+    table.append(el('thead', {}, [el('tr', {}, [el('th', { text: 'Period' }), el('th', { class: 'num', text: 'Accepted' }), el('th', { class: 'num', text: kind === 'bounce' ? 'Bounced' : 'Complaints' }), el('th', { class: 'num', text: 'Rate' })])]));
+    const tb = el('tbody');
+    buckets.forEach((b, i) => tb.append(el('tr', {}, [el('td', { text: fmtTime(b, ts.bucket) }), el('td', { class: 'num', text: fmtInt(acc[i]) }), el('td', { class: 'num', text: fmtInt(bad[i]) }), el('td', { class: 'num', text: pct(rate[i], 2) })])));
+    table.append(tb);
+    clear(tableHost).append(table);
+  }
+
+  // ---- tables -------------------------------------------------------------
+  function renderProjects(rows) {
+    const host = clear($('#projects-table'));
+    $('#projects-sub').textContent = `${rows.length} project${rows.length === 1 ? '' : 's'}`;
+    if (!rows.length) { host.append(el('div', { class: 'empty', text: 'No projects yet. Create one via POST /admin/projects.' })); return; }
+    const table = el('table');
+    const heads = [['Project'], ['Domains'], ['Submitted', 'num'], ['Accepted', 'num'], ['Delivered', 'num'], ['Bounce', 'num'], ['Complaint', 'num'], ['Failed', 'num'], ['Queued', 'num'], ['Last sent']];
+    table.append(el('thead', {}, [el('tr', {}, heads.map(([t, c]) => el('th', { class: c || '', text: t })))]));
+    const tb = el('tbody');
+    for (const r of rows) {
+      const sw = el('i', { class: 'swatch' }); sw.style.background = colorOf(r.slug);
+      const bounceCell = el('td', { class: 'num' }); bounceCell.append(document.createTextNode(pct(r.rates.bounce, 2)));
+      const compCell = el('td', { class: 'num' }); compCell.append(document.createTextNode(pct(r.rates.complaint, 3)));
+      if (r.rates.bounce >= LIMITS.bounce) bounceCell.append(document.createTextNode(' '), statusNode('critical', ''));
+      if (r.rates.complaint >= LIMITS.complaint) compCell.append(document.createTextNode(' '), statusNode('critical', ''));
+      tb.append(el('tr', {}, [
+        el('td', {}, [sw, el('b', { text: r.name }), document.createTextNode(' '), el('span', { class: 'muted', text: r.slug })]),
+        el('td', {}, r.domains.length ? r.domains.map((d) => el('span', { class: 'chip', text: d })) : [el('span', { class: 'muted', text: 'none' })]),
+        el('td', { class: 'num', text: fmtInt(r.submitted) }),
+        el('td', { class: 'num', text: fmtInt(r.accepted) }),
+        el('td', { class: 'num', text: r.accepted ? `${fmtInt(r.delivered)} (${pct(r.rates.delivery)})` : '–' }),
+        bounceCell, compCell,
+        el('td', { class: 'num', text: fmtInt(r.failed) }),
+        el('td', { class: 'num', text: fmtInt(r.queued) }),
+        el('td', { class: 'muted', text: r.last_sent_at ? ago(r.last_sent_at) : 'never' }),
+      ]));
+    }
+    table.append(tb);
+    host.append(table);
+  }
+
+  function renderProblems(rows) {
+    const host = clear($('#problems-table'));
+    if (!rows.length) { host.append(el('div', { class: 'empty', text: 'No failures, bounces or complaints in this range.' })); return; }
+    const table = el('table');
+    table.append(el('thead', {}, [el('tr', {}, ['When', 'Project', 'Status', 'To', 'Subject', 'Detail'].map((t) => el('th', { text: t })))]));
+    const tb = el('tbody');
+    const level = { failed: 'serious', bounced: 'serious', complained: 'critical' };
+    for (const r of rows) {
+      tb.append(el('tr', {}, [
+        el('td', { class: 'muted', text: fmtDateTime(r.updated_at) }),
+        el('td', { text: r.project }),
+        el('td', {}, [statusNode(level[r.status] || 'warning', r.status)]),
+        el('td', { text: r.to_addresses.join(', ') }),
+        el('td', { text: r.subject }),
+        el('td', {}, [el('div', { class: 'err', text: r.last_error || (r.status === 'bounced' ? 'Permanent bounce (see suppression list)' : r.status === 'complained' ? 'Recipient marked as spam' : '') }),
+          r.attempts > 1 ? el('div', { class: 'muted', text: `${r.attempts} attempts` }) : document.createTextNode('')]),
+      ]));
+    }
+    table.append(tb);
+    host.append(table);
+  }
+
+  // ---- load ---------------------------------------------------------------
+  let lastData = null;
+  async function load() {
+    const cards = document.querySelectorAll('#app .card');
+    cards.forEach((c) => c.classList.add('loading'));
+    $('#banner').style.display = 'none';
+    try {
+      const w = windowParams();
+      const [projects, summary, ts, perProject, problems] = await Promise.all([
+        api('/admin/projects'), api('/admin/stats/summary', w), api('/admin/stats/timeseries', w),
+        api('/admin/stats/projects', w), api('/admin/stats/problems', { ...w, limit: 50 }),
+      ]);
+      state.projects = projects.data;
+      assignColors(state.projects);
+      syncProjectSelect();
+      lastData = { summary, ts, perProject, problems, w };
+      renderAll();
+      $('#updated').textContent = `Updated ${new Date().toLocaleTimeString()}`;
+    } catch (err) {
+      if (err.message !== 'unauthorized') { const b = $('#banner'); b.textContent = `Could not load data: ${err.message}`; b.style.display = 'block'; }
+    } finally {
+      cards.forEach((c) => c.classList.remove('loading'));
+    }
+  }
+  function renderAll() {
+    if (!lastData) return;
+    const { summary, ts, perProject, problems, w } = lastData;
+    renderKpis(summary);
+    renderVolume(ts, w);
+    renderRate('bounce', ts, w);
+    renderRate('complaint', ts, w);
+    renderProjects(perProject.data);
+    renderProblems(problems.data);
+    $('#subtitle').textContent = state.project ? `Project: ${state.project}` : 'Performance across all projects';
+  }
+  function syncProjectSelect() {
+    const sel = $('#project');
+    const current = sel.value;
+    clear(sel).append(el('option', { value: '', text: 'All projects' }));
+    for (const p of state.projects) sel.append(el('option', { value: p.slug, text: p.name }));
+    sel.value = state.projects.some((p) => p.slug === current) ? current : '';
+    state.project = sel.value;
+  }
+
+  // ---- wiring -------------------------------------------------------------
+  function signOut(msg) {
+    store.del('emailsvc_admin_token'); state.token = null; clearInterval(state.timer);
+    $('#app').hidden = true; $('#gate').hidden = false;
+    if (msg) { $('#gate p').textContent = msg; }
+    $('#token').focus();
+  }
+  function start() {
+    $('#gate').hidden = true; $('#app').hidden = false;
+    load();
+    clearInterval(state.timer);
+    state.timer = setInterval(() => { if ($('#auto').checked && document.visibilityState === 'visible') load(); }, 60_000);
+  }
+  $('#gate-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    state.token = $('#token').value.trim(); store.set('emailsvc_admin_token', state.token); $('#token').value = '';
+    start();
+  });
+  $('#ranges').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    document.querySelectorAll('#ranges button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    state.hours = Number(b.dataset.hours); load();
+  });
+  $('#project').addEventListener('change', (e) => { state.project = e.target.value; load(); });
+  $('#refresh').addEventListener('click', load);
+  $('#signout').addEventListener('click', () => signOut());
+  document.querySelectorAll('.table-toggle').forEach((t) => t.addEventListener('change', (e) => e.target.closest('.card').classList.toggle('show-table', e.target.checked)));
+  let resizeTimer; window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(renderAll, 120); });
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { assignColors(state.projects); renderAll(); });
+
+  state.token = store.get('emailsvc_admin_token');
+  if (state.token) start(); else { $('#gate').hidden = false; $('#token').focus(); }
+})();
+</script>
+</body>
+</html>

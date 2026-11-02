@@ -1,0 +1,39 @@
+{
+  "name": "email-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared transactional email service for internal projects, backed by Amazon SES",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "migrate": "tsx src/scripts/migrate.ts",
+    "setup:aws": "tsx src/scripts/setup-aws.ts",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@aws-sdk/client-sesv2": "^3.700.0",
+    "@aws-sdk/client-sns": "^3.700.0",
+    "@aws-sdk/client-sqs": "^3.700.0",
+    "fastify": "^5.1.0",
+    "fastify-type-provider-zod": "^4.0.2",
+    "handlebars": "^4.7.8",
+    "pg": "^8.13.1",
+    "pino": "^9.5.0",
+    "sns-validator": "^0.3.5",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "@types/sns-validator": "^0.3.3",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

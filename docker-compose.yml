@@ -1,0 +1,45 @@
+# Local development stack: Postgres + ElasticMQ (SQS-compatible) + the service in dry-run mode.
+#   docker compose up --build
+# Then onboard a project with the curl commands in the README (ADMIN_TOKEN below).
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: email
+      POSTGRES_PASSWORD: email
+      POSTGRES_DB: email
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U email"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  sqs:
+    image: softwaremill/elasticmq-native:1.6.9
+    ports: ["9324:9324", "9325:9325"]
+    volumes: ["./elasticmq.conf:/opt/elasticmq.conf:ro"]
+
+  app:
+    build: .
+    depends_on:
+      db: { condition: service_healthy }
+      sqs: { condition: service_started }
+    ports: ["3000:3000"]
+    environment:
+      NODE_ENV: development
+      MODE: all
+      LOG_LEVEL: debug
+      DATABASE_URL: postgres://email:email@db:5432/email
+      AWS_REGION: eu-west-1
+      # Dummy credentials satisfy the SDK; ElasticMQ ignores them. SES is never called (dry run).
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local
+      SQS_ENDPOINT: http://sqs:9324
+      SQS_QUEUE_URL: http://sqs:9324/000000000000/emailsvc-send
+      SES_DRY_RUN: "true"
+      ADMIN_TOKEN: local-admin-token-change-me
+
+volumes:
+  pgdata:
