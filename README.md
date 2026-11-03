@@ -147,18 +147,20 @@ const { id } = await res.json();
 | `GET` | `/v1/emails/:id/events` | Raw SES events (delivery, bounce, complaint…) |
 | `GET/PUT/DELETE` | `/v1/templates/:name` | Manage templates |
 | `POST` | `/v1/templates/:name/render` | Preview with `{"data": {...}}` |
-| `GET/POST/DELETE` | `/v1/suppressions/:email` | Check / add / remove an address |
+| `GET` | `/v1/suppressions/:email` | Check whether an address is suppressed |
+| `POST` | `/v1/suppressions` | Add a manual suppression: `{"email": "...", "note": "..."}` |
+| `DELETE` | `/v1/suppressions/:email` | Remove a manual suppression this project added (403 for bounces, complaints, or other projects' entries) |
 | `GET/POST` | `/admin/projects` | List / create projects |
 | `GET` | `/admin/projects/:slug` | Project with domains and keys |
 | `POST/GET/DELETE` | `/admin/projects/:slug/domains[/:domain]` | Attach domain, poll DNS/verification, detach |
 | `POST/DELETE` | `/admin/projects/:slug/keys[/:keyId]` | Issue / revoke API keys |
-| `GET/DELETE` | `/admin/suppressions[/:email]` | Global suppression list |
+| `GET/DELETE` | `/admin/suppressions[/:email]` | Global suppression list; admins can remove any entry |
 | `POST` | `/webhooks/ses` | SNS → SES events (signature-verified) |
 | `GET` | `/health`, `/ready` | Liveness / readiness |
 
 ### Message statuses
 
-`queued → sending → sent → delivered | bounced | complained`, or `suppressed` (every recipient was on the suppression list) / `failed` (SES rejected it, or retries exhausted). `GET /v1/emails/:id` shows `attempts` and `last_error`.
+`queued → sending → sent → delivered | bounced | complained`, or `suppressed` (every `to` recipient was on the suppression list) / `failed` (SES rejected it, or retries exhausted). `GET /v1/emails/:id` shows `attempts` and `last_error`.
 
 ## 5. Performance dashboard
 
@@ -185,7 +187,7 @@ Endpoints, all `Authorization: Bearer $ADMIN_TOKEN`, all accepting `?from=<ISO>&
 
 - **Sender ownership.** A key can only send from its project's verified domains (and their subdomains). `From: anything@gmail.com` is refused with 403.
 - **Per-project SES configuration sets.** Bounce and complaint rates are visible per project in SES/CloudWatch, so a misbehaving project is identifiable before it affects the account.
-- **Global suppression list.** Permanent bounces and complaints from any project are suppressed for all projects, automatically, from SES events. Transient bounces are logged only.
+- **Global suppression list.** Permanent bounces and complaints from any project are suppressed for all projects, automatically, from SES events. Transient bounces are logged only. Projects can remove only manual suppressions they added themselves; lifting a bounce or complaint suppression requires the admin API.
 - **DMARC alignment.** Domains are created with DKIM (2048-bit) and a custom MAIL FROM (`bounce.<domain>`) so both DKIM and SPF align. Start DMARC at `p=none`, move to `p=quarantine`/`p=reject` once reports look clean.
 - **Header hygiene.** Callers cannot inject `From`, `Bcc`, `Return-Path` etc., and CR/LF in header values is rejected.
 - **At-most-once sends.** A message is claimed with an atomic status update before SES is called; duplicate SQS deliveries are dropped. Transient SES errors retry with exponential backoff (30s → 15min) up to `MAX_SEND_ATTEMPTS`, then go to `failed` and the SQS DLQ.

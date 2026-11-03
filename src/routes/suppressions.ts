@@ -2,13 +2,20 @@ import type { FastifyPluginAsync } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { requireApiKey } from '../lib/auth.js';
-import { badRequest, notFound } from '../lib/errors.js';
+import { badRequest, forbidden, notFound } from '../lib/errors.js';
 import { parseAddress } from '../lib/email.js';
-import { addSuppression, findSuppressed, removeSuppression } from '../services/suppression.js';
+import {
+  addSuppression,
+  findSuppressed,
+  getSuppression,
+  removeOwnManualSuppression,
+} from '../services/suppression.js';
 
 /**
  * Project-facing suppression endpoints. The list is global (shared across projects)
- * because reputation is shared, but projects can check and manage individual addresses.
+ * because reputation is shared: projects can check any address and add manual
+ * entries, but may only remove manual entries they added themselves. Bounce and
+ * complaint suppressions can only be lifted via the admin API.
  */
 export const suppressionRoutes: FastifyPluginAsync = async (instance) => {
   const app = instance.withTypeProvider<ZodTypeProvider>();
@@ -40,9 +47,18 @@ export const suppressionRoutes: FastifyPluginAsync = async (instance) => {
   app.delete('/suppressions/:email', { schema: { params: z.object({ email: z.string() }) } }, async (req, reply) => {
     const parsed = parseAddress(req.params.email);
     if (!parsed) throw badRequest('invalid_email', 'Not a valid email address');
-    const ok = await removeSuppression(app.db, parsed.address);
-    if (!ok) throw notFound('Suppression');
-    req.log.warn({ email: parsed.address }, 'suppression removed by project');
+    const projectId = req.auth!.project.id;
+    if (!(await removeOwnManualSuppression(app.db, parsed.address, projectId))) {
+      const existing = await getSuppression(app.db, parsed.address);
+      if (!existing) throw notFound('Suppression');
+      throw forbidden(
+        'suppression_not_removable',
+        existing.reason === 'manual'
+          ? 'This address was suppressed by another project; ask an admin to remove it'
+          : `This address is suppressed because of a ${existing.reason}; only an admin can remove it`,
+      );
+    }
+    req.log.warn({ email: parsed.address }, 'manual suppression removed by project');
     return reply.status(204).send();
   });
 };
