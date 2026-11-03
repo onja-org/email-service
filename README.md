@@ -39,6 +39,20 @@ npm run build   # tsc → dist/
 3. **Request SES production access** (AWS console → SES → Account dashboard). New accounts are sandboxed: they can only send to verified addresses. Describe it as transactional email for internal company applications; approval usually takes under a day.
 4. **Deploy the container** (see §7) with the variables from `.env.example`. It runs migrations on start, then confirms the SNS subscription automatically when the first SNS request arrives.
 
+### Testing while still in the SES sandbox
+
+A new SES account is sandboxed: it sends only **to verified identities**, at most 200/day and 1/s. That is enough to test everything end to end.
+
+1. In the SES console (your region) → **Identities → Create identity**: verify your sending **domain** (add the DKIM CNAMEs it shows), and verify each **email address** you will send test mail *to* (SES emails a confirmation link to it).
+2. Run the preflight + one real send, with AWS credentials in your shell:
+   ```bash
+   AWS_REGION=eu-west-1 npm run ses:test -- --from no-reply@yourdomain.com --to you@yourdomain.com --dry
+   ```
+   It prints sandbox status, quota, and whether sender and recipients are verified. Drop `--dry` to send.
+3. Then test the whole service: `docker compose up --build` with `SES_DRY_RUN=false`, `AWS_REGION`, `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` set in the `app` service's environment (SQS still runs on ElasticMQ locally), onboard a project (§3) and `POST /v1/emails` to a verified address. Watch `/dashboard` and `GET /v1/emails/:id` for `status: sent` and the `ses_message_id`.
+
+Sending to an unverified address in the sandbox fails with `MessageRejected: Email address is not verified`; the message ends up `failed` with that error, which is the expected behaviour.
+
 ## 3. Onboard a project
 
 All `/admin` calls use `Authorization: Bearer $ADMIN_TOKEN`.

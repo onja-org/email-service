@@ -13,6 +13,7 @@
     "start": "node dist/main.js",
     "migrate": "tsx src/scripts/migrate.ts",
     "setup:aws": "tsx src/scripts/setup-aws.ts",
+    "ses:test": "tsx src/scripts/ses-test.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
