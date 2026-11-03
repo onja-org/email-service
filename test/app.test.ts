@@ -31,7 +31,14 @@ const cfg: Config = {
 
 const key = generateApiKey();
 const project = { id: '00000000-0000-0000-0000-000000000001', slug: 'billing', name: 'Billing', config_set: 'emailsvc-billing', created_at: new Date() };
-const suppressed = new Set(['blocked@example.com']);
+const otherProjectId = '00000000-0000-0000-0000-000000000002';
+/** email -> suppression row (only the fields the routes read). */
+const suppressions = new Map<string, { email: string; reason: string; project_id: string | null }>([
+  ['blocked@example.com', { email: 'blocked@example.com', reason: 'bounce', project_id: otherProjectId }],
+  ['complainer@example.com', { email: 'complainer@example.com', reason: 'complaint', project_id: project.id }],
+  ['other-manual@example.com', { email: 'other-manual@example.com', reason: 'manual', project_id: otherProjectId }],
+  ['own-manual@example.com', { email: 'own-manual@example.com', reason: 'manual', project_id: project.id }],
+]);
 const inserted: Record<string, unknown>[] = [];
 const enqueued: SendJob[] = [];
 
@@ -47,8 +54,18 @@ const fakeDb = {
     }
     if (s.startsWith('UPDATE api_keys SET last_used_at')) return { rows: [], rowCount: 1 };
     if (s.includes('FROM suppressions WHERE email = ANY')) {
-      const hits = (params[0] as string[]).filter((e) => suppressed.has(e)).map((email) => ({ email }));
+      const hits = (params[0] as string[]).filter((e) => suppressions.has(e)).map((email) => ({ email }));
       return { rows: hits, rowCount: hits.length };
+    }
+    if (s === "DELETE FROM suppressions WHERE email = $1 AND reason = 'manual' AND project_id = $2") {
+      const row = suppressions.get(params[0] as string);
+      const ok = !!row && row.reason === 'manual' && row.project_id === params[1];
+      if (ok) suppressions.delete(params[0] as string);
+      return { rows: [], rowCount: ok ? 1 : 0 };
+    }
+    if (s === 'SELECT * FROM suppressions WHERE email = $1') {
+      const row = suppressions.get(params[0] as string);
+      return { rows: row ? [row] : [], rowCount: row ? 1 : 0 };
     }
     if (s.startsWith('INSERT INTO messages')) {
       const row = {
@@ -219,5 +236,35 @@ describe('POST /v1/emails', () => {
     const res = await app.inject({ method: 'GET', url: '/v1/emails/00000000-0000-0000-0000-00000000ffff', headers: auth });
     expect(res.statusCode).toBe(404);
     expect((await app.inject({ method: 'GET', url: '/nope' })).json().error.code).toBe('not_found');
+  });
+});
+
+describe('DELETE /v1/suppressions/:email', () => {
+  const del = (email: string) =>
+    app.inject({ method: 'DELETE', url: `/v1/suppressions/${encodeURIComponent(email)}`, headers: auth });
+
+  it('removes a manual suppression the project added itself', async () => {
+    expect((await del('own-manual@example.com')).statusCode).toBe(204);
+    expect(suppressions.has('own-manual@example.com')).toBe(false);
+  });
+
+  it('refuses to lift bounce and complaint suppressions', async () => {
+    const bounce = await del('blocked@example.com');
+    expect(bounce.statusCode).toBe(403);
+    expect(bounce.json().error.code).toBe('suppression_not_removable');
+
+    // Even when the complaint came from this project's own mail.
+    expect((await del('complainer@example.com')).statusCode).toBe(403);
+    expect(suppressions.has('blocked@example.com')).toBe(true);
+    expect(suppressions.has('complainer@example.com')).toBe(true);
+  });
+
+  it("refuses to remove another project's manual suppression", async () => {
+    expect((await del('other-manual@example.com')).statusCode).toBe(403);
+    expect(suppressions.has('other-manual@example.com')).toBe(true);
+  });
+
+  it('404s for an address that is not suppressed', async () => {
+    expect((await del('nobody@example.com')).statusCode).toBe(404);
   });
 });

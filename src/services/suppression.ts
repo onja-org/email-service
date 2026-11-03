@@ -41,8 +41,27 @@ export async function addSuppression(
   );
 }
 
+export async function getSuppression(db: Queryable, email: string): Promise<Suppression | null> {
+  const { rows } = await db.query<Suppression>('SELECT * FROM suppressions WHERE email = $1', [email.toLowerCase()]);
+  return rows[0] ?? null;
+}
+
+/** Admin removal: deletes any suppression regardless of reason or origin. */
 export async function removeSuppression(db: Queryable, email: string): Promise<boolean> {
   const { rowCount } = await db.query('DELETE FROM suppressions WHERE email = $1', [email.toLowerCase()]);
+  return (rowCount ?? 0) > 0;
+}
+
+/**
+ * Project removal: deletes the suppression only if it is a manual entry added by
+ * that same project. Bounces and complaints protect the shared sending reputation,
+ * so only an admin may lift them.
+ */
+export async function removeOwnManualSuppression(db: Queryable, email: string, projectId: string): Promise<boolean> {
+  const { rowCount } = await db.query(
+    `DELETE FROM suppressions WHERE email = $1 AND reason = 'manual' AND project_id = $2`,
+    [email.toLowerCase(), projectId],
+  );
   return (rowCount ?? 0) > 0;
 }
 
