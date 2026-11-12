@@ -70,11 +70,7 @@
 <main>
   <div class="topbar">
     <h1>Email service</h1>
-    <nav>
-      <a href="/" aria-current="page">Developer guide</a>
-      <a href="/admin/ui">Admin</a>
-      <a href="/dashboard">Dashboard</a>
-    </nav>
+    <span class="sub">Developer guide</span>
   </div>
 
   <div class="layout">
@@ -98,7 +94,7 @@
     <article>
       <div class="hero">
         <h1>Send email from your app</h1>
-        <p>This service sends your project's transactional email through Amazon SES. You make one HTTPS call and the service validates, queues, sends, and tracks delivery. It also skips addresses that have bounced or complained. This guide covers Node.js, Python and Go.</p>
+        <p>This service sends your project's transactional email. You make one HTTPS call and the service validates, queues, sends, and tracks delivery. It also skips addresses that have bounced or complained. This guide covers Node.js, Python and Go.</p>
         <div class="base"><span class="muted">Base URL</span> <code class="origin">https://email.example.com</code></div>
       </div>
 
@@ -320,7 +316,6 @@ type Email struct {
 	Subject              string            `json:"subject"`
 	Template             string            `json:"template"`
 	Tags                 map[string]string `json:"tags"`
-	SESMessageID         string            `json:"ses_message_id"`
 	Attempts             int               `json:"attempts"`
 	LastError            string            `json:"last_error"`
 	IdempotencyKey       string            `json:"idempotency_key"`
@@ -455,7 +450,6 @@ func main() {
   "subject": "Your invoice #42",
   "template": null,
   "tags": { "invoice": "42" },
-  "ses_message_id": null,
   "attempts": 0,
   "last_error": null,
   "idempotency_key": null,
@@ -703,15 +697,15 @@ if err != nil {
         <h2>Track delivery</h2>
         <p>Each email moves through these statuses:</p>
         <div class="status-flow">queued → sending → sent → delivered | bounced | complained
-                 ↘ failed        SES rejected it, or every retry failed
+                 ↘ failed        rejected for sending, or every retry failed
 suppressed                       every "to" address was suppressed; nothing sent</div>
-        <p style="margin-top:12px"><code>sent</code> means SES accepted the email. <code>delivered</code>, <code>bounced</code> and <code>complained</code> come later, when the recipient's mail server reports back. That can take seconds or, for a soft bounce, much longer. Your project doesn't get a callback when the status changes. To find out, fetch the email by its <code>id</code>:</p>
+        <p style="margin-top:12px"><code>sent</code> means the email has left the service on its way to the recipient. <code>delivered</code>, <code>bounced</code> and <code>complained</code> come later, when the recipient's mail server reports back. That can take seconds or, for a soft bounce, much longer. Your project doesn't get a callback when the status changes. To find out, fetch the email by its <code>id</code>:</p>
         <div class="code" data-lang="node">
           <div class="code-head"><span class="file">status.js</span><button type="button" class="copy small">Copy</button></div>
           <pre><code>const email = await api('GET', `/v1/emails/${id}`);
 console.log(email.status, email.attempts, email.last_error);
 
-// Raw SES events: Delivery, Bounce, Complaint, …
+// Delivery events: Delivery, Bounce, Complaint, …
 const { data: events } = await api('GET', `/v1/emails/${id}/events`);
 for (const e of events) console.log(e.created_at, e.event_type);</code></pre>
         </div>
@@ -720,7 +714,7 @@ for (const e of events) console.log(e.created_at, e.event_type);</code></pre>
           <pre><code>email = api("GET", f"/v1/emails/{email_id}")
 print(email["status"], email["attempts"], email["last_error"])
 
-# Raw SES events: Delivery, Bounce, Complaint, …
+# Delivery events: Delivery, Bounce, Complaint, …
 for e in api("GET", f"/v1/emails/{email_id}/events")["data"]:
     print(e["created_at"], e["event_type"])</code></pre>
         </div>
@@ -732,7 +726,7 @@ if err != nil {
 }
 fmt.Println(email.Status, email.Attempts, email.LastError)
 
-// Raw SES events: Delivery, Bounce, Complaint, …
+// Delivery events: Delivery, Bounce, Complaint, …
 var events struct {
 	Data []struct {
 		EventType string          `json:"event_type"`
@@ -929,7 +923,7 @@ if errors.As(err, &amp;apiErr) &amp;&amp; apiErr.Code == "invalid_recipient" {
               <tr><td><code>POST</code></td><td><code>/v1/emails</code></td><td>Queue an email. Returns <code>202</code>, or <code>200</code> on an idempotent replay.</td></tr>
               <tr><td><code>GET</code></td><td><code>/v1/emails</code></td><td>List emails. Query: <code>limit</code>, <code>before</code>, <code>status</code>, <code>to</code>.</td></tr>
               <tr><td><code>GET</code></td><td><code>/v1/emails/:id</code></td><td>One email, with its body, attempts and last error.</td></tr>
-              <tr><td><code>GET</code></td><td><code>/v1/emails/:id/events</code></td><td>The SES events for the email.</td></tr>
+              <tr><td><code>GET</code></td><td><code>/v1/emails/:id/events</code></td><td>Delivery events for the email: delivery, bounce, complaint.</td></tr>
               <tr><td><code>GET</code></td><td><code>/v1/templates</code></td><td>List templates.</td></tr>
               <tr><td><code>GET</code> <code>PUT</code> <code>DELETE</code></td><td><code>/v1/templates/:name</code></td><td>Read, create or replace, or delete a template.</td></tr>
               <tr><td><code>POST</code></td><td><code>/v1/templates/:name/render</code></td><td>Preview a template with <code>{"data": {…}}</code>.</td></tr>
@@ -939,7 +933,6 @@ if errors.As(err, &amp;apiErr) &amp;&amp; apiErr.Code == "invalid_recipient" {
             </tbody>
           </table>
         </div>
-        <p class="sub">Testing before you go live? In a local or staging deployment with <code>SES_DRY_RUN=true</code>, emails go through the whole pipeline and reach <code>sent</code>, but are only logged, never delivered.</p>
       </section>
     </article>
   </div>
