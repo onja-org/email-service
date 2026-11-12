@@ -12,7 +12,7 @@
  * created by POST /admin/projects, and domain identities by POST /admin/projects/:slug/domains.
  */
 import { CreateQueueCommand, GetQueueAttributesCommand, SQSClient } from '@aws-sdk/client-sqs';
-import { CreateTopicCommand, SNSClient, SubscribeCommand } from '@aws-sdk/client-sns';
+import { CreateTopicCommand, ListSubscriptionsByTopicCommand, SNSClient, SubscribeCommand } from '@aws-sdk/client-sns';
 
 const region = process.env.AWS_REGION;
 if (!region) throw new Error('AWS_REGION is required');
@@ -52,12 +52,17 @@ async function main() {
   } else {
     console.log('WEBHOOK_URL not set: skipped SNS subscription. Re-run with it once the service is deployed.');
   }
+  const { Subscriptions = [] } = await sns.send(new ListSubscriptionsByTopicCommand({ TopicArn }));
+  if (Subscriptions.length) {
+    console.log('Subscriptions on the topic (delete stale ones in the SNS console when the webhook URL changes):');
+    for (const s of Subscriptions) console.log(`  ${s.Endpoint}  ${s.SubscriptionArn === 'PendingConfirmation' ? '(pending confirmation)' : ''}`);
+  }
 
   console.log('\nAdd to your environment:\n');
   console.log(`AWS_REGION=${region}`);
   console.log(`SQS_QUEUE_URL=${queue.url}`);
   console.log(`SNS_EVENTS_TOPIC_ARN=${TopicArn}`);
-  console.log('\nThen request SES production access in the AWS console (SES > Account dashboard).');
+  console.log('\nIf the account is still in the SES sandbox, request production access (SES > Account dashboard).');
 }
 
 main().catch((err) => {

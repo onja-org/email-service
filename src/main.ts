@@ -5,11 +5,12 @@ import { createQueue } from './services/queue.js';
 import { createSesService } from './services/ses.js';
 import { buildApp } from './app.js';
 import { createWorker } from './worker.js';
+import { reconcileConfigurationSets } from './services/projects.js';
 
 async function main(): Promise<void> {
   const cfg = loadConfig();
   const log = pino({ level: cfg.LOG_LEVEL });
-  const db = createDb(cfg.DATABASE_URL);
+  const db = createDb(cfg.DATABASE_URL, { ssl: cfg.DATABASE_SSL });
   const queue = createQueue(cfg);
   const ses = createSesService(cfg, log);
 
@@ -20,6 +21,7 @@ async function main(): Promise<void> {
   const worker = runWorker ? createWorker({ cfg, db, queue, ses, log }) : null;
 
   await db.query('SELECT 1');
+  if (runApi && !cfg.SES_DRY_RUN) await reconcileConfigurationSets(db, ses, log);
   await app.listen({ port: cfg.PORT, host: cfg.HOST });
   worker?.start();
   log.info({ mode: cfg.MODE, region: cfg.AWS_REGION, port: cfg.PORT }, 'email-service ready');

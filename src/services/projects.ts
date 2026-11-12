@@ -1,6 +1,7 @@
 import type { Queryable } from '../lib/db.js';
 import { generateApiKey, hashApiKey } from '../lib/keys.js';
 import { conflict, notFound } from '../lib/errors.js';
+import type { SesService } from './ses.js';
 
 export interface Project {
   id: string;
@@ -41,6 +42,28 @@ export async function createProject(
     if (isUniqueViolation(err)) throw conflict('project_exists', `Project "${input.slug}" already exists`);
     throw err;
   }
+}
+
+/**
+ * Makes sure every project's SES configuration set exists and publishes events
+ * to the configured SNS topic. Run at startup: a project created before
+ * SNS_EVENTS_TOPIC_ARN was set would otherwise never get an event destination,
+ * so its bounces and complaints would never reach the suppression list.
+ */
+export async function reconcileConfigurationSets(
+  db: Queryable,
+  ses: Pick<SesService, 'ensureConfigurationSet'>,
+  log: { info: (o: unknown, m?: string) => void; warn: (o: unknown, m?: string) => void },
+): Promise<void> {
+  const { rows } = await db.query<{ slug: string; config_set: string }>('SELECT slug, config_set FROM projects');
+  for (const p of rows) {
+    try {
+      await ses.ensureConfigurationSet(p.config_set);
+    } catch (err) {
+      log.warn({ err, project: p.slug, configSet: p.config_set }, 'could not reconcile SES configuration set');
+    }
+  }
+  if (rows.length) log.info({ projects: rows.length }, 'SES configuration sets reconciled');
 }
 
 export async function getProjectBySlug(db: Queryable, slug: string): Promise<Project> {
