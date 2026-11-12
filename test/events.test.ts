@@ -4,6 +4,12 @@ import { interpretSesEvent } from '../src/services/events.js';
 const mail = { messageId: 'ses-123', tags: { emailsvc_message_id: ['11111111-1111-1111-1111-111111111111'] } };
 
 describe('interpretSesEvent', () => {
+  it('ignores a correlation tag that is not one of our ids', () => {
+    const ev = interpretSesEvent({ eventType: 'Delivery', mail: { messageId: 'ses-1', tags: { emailsvc_message_id: ['not-a-uuid'] } } });
+    expect(ev.taggedMessageId).toBeNull();
+    expect(ev.sesMessageId).toBe('ses-1');
+  });
+
   it('marks deliveries', () => {
     const it_ = interpretSesEvent({ eventType: 'Delivery', mail });
     expect(it_).toMatchObject({ type: 'Delivery', sesMessageId: 'ses-123', newStatus: 'delivered', suppress: [] });

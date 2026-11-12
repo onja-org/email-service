@@ -144,26 +144,35 @@ export async function claimForSending(db: Queryable, id: string): Promise<Messag
 
 /**
  * Messages that have sat in "queued" for a long time were probably inserted but
- * never reached SQS (enqueue failed) or their SQS message was lost. The worker
- * periodically re-enqueues them; duplicate deliveries are harmless (see claim).
+ * never reached SQS (enqueue failed) or their SQS message was lost; messages
+ * stuck in "sending" that long belong to a worker that died mid-send. The worker
+ * periodically re-enqueues both; duplicate deliveries are harmless (see claim).
  */
-export async function findStaleQueued(db: Queryable, olderThanMinutes: number, limit = 100): Promise<string[]> {
+export async function findStale(db: Queryable, olderThanMinutes: number, limit = 100): Promise<string[]> {
   const { rows } = await db.query<{ id: string }>(
     `SELECT id FROM messages
-     WHERE status = 'queued' AND updated_at < now() - ($1 || ' minutes')::interval
+     WHERE status IN ('queued', 'sending') AND updated_at < now() - ($1 || ' minutes')::interval
      ORDER BY updated_at LIMIT $2`,
     [String(olderThanMinutes), limit],
   );
   return rows.map((r) => r.id);
 }
 
+/** Marks a queued row as freshly re-enqueued. Never touches "sending": that would extend a dead worker's lease. */
 export async function touch(db: Queryable, id: string): Promise<void> {
-  await db.query('UPDATE messages SET updated_at = now() WHERE id = $1', [id]);
+  await db.query("UPDATE messages SET updated_at = now() WHERE id = $1 AND status = 'queued'", [id]);
 }
 
+/**
+ * Records the SES acceptance. The status only moves to "sent" if nothing has
+ * overtaken it: an SES event (Delivery, Bounce) can arrive via the webhook before
+ * this write lands, and must not be rolled back.
+ */
 export async function markSent(db: Queryable, id: string, sesMessageId: string): Promise<void> {
   await db.query(
-    `UPDATE messages SET status = 'sent', ses_message_id = $2, sent_at = now(), last_error = NULL, updated_at = now()
+    `UPDATE messages
+     SET status = CASE WHEN status = 'sending' THEN 'sent'::message_status ELSE status END,
+         ses_message_id = $2, sent_at = now(), last_error = NULL, updated_at = now()
      WHERE id = $1`,
     [id, sesMessageId],
   );

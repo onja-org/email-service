@@ -157,6 +157,15 @@ describe('auth', () => {
   it('protects /admin with the admin token', async () => {
     expect((await app.inject({ method: 'GET', url: '/admin/projects', headers: auth })).statusCode).toBe(401);
   });
+
+  it('authenticates before validating, so unauthenticated callers never see schema errors', async () => {
+    const res = await app.inject({ method: 'POST', url: '/v1/emails', payload: {} });
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error.code).toBe('unauthorized');
+
+    const admin = await app.inject({ method: 'POST', url: '/admin/projects', payload: {} });
+    expect(admin.statusCode).toBe(401);
+  });
 });
 
 describe('POST /v1/emails', () => {
@@ -178,6 +187,21 @@ describe('POST /v1/emails', () => {
     const res = await app.inject({ method: 'POST', url: '/v1/emails', headers: auth, payload: { to: 'not-an-array' } });
     expect(res.statusCode).toBe(400);
     expect(res.json().error.code).toBe('validation_error');
+  });
+
+  it('rejects tags SES would refuse, and reserved tag names', async () => {
+    for (const tags of [{ 'invoice number': '42' }, { invoice: 'n/a' }, { emailsvc_message_id: 'x' }]) {
+      const res = await app.inject({ method: 'POST', url: '/v1/emails', headers: auth, payload: { ...validBody, tags } });
+      expect(res.statusCode, JSON.stringify(tags)).toBe(400);
+      expect(res.json().error.code).toBe('validation_error');
+    }
+    const ok = await app.inject({
+      method: 'POST',
+      url: '/v1/emails',
+      headers: auth,
+      payload: { ...validBody, tags: { invoice: '42', Env_Name: 'prod-eu' } },
+    });
+    expect(ok.statusCode).toBe(202);
   });
 
   it('returns 403 when sending from a domain the project does not own', async () => {

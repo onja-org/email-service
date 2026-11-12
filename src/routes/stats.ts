@@ -30,7 +30,7 @@ function resolveWindow(q: z.infer<typeof windowQuery>): StatsWindow {
  */
 export const statsRoutes: FastifyPluginAsync = async (instance) => {
   const app = instance.withTypeProvider<ZodTypeProvider>();
-  app.addHook('preHandler', requireAdmin);
+  app.addHook('preValidation', requireAdmin);
 
   app.get('/summary', { schema: { querystring: windowQuery } }, async (req) =>
     getSummary(app.db, resolveWindow(req.query)),

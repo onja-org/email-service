@@ -19,7 +19,7 @@ import {
  */
 export const suppressionRoutes: FastifyPluginAsync = async (instance) => {
   const app = instance.withTypeProvider<ZodTypeProvider>();
-  app.addHook('preHandler', requireApiKey);
+  app.addHook('preValidation', requireApiKey);
 
   app.get('/suppressions/:email', { schema: { params: z.object({ email: z.string() }) } }, async (req) => {
     const parsed = parseAddress(req.params.email);

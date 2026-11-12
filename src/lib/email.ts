@@ -17,7 +17,7 @@ export interface ParsedAddress {
 
 export function parseAddress(input: string): ParsedAddress | null {
   const raw = input.trim();
-  if (!raw) return null;
+  if (!raw || /[\r\n\0]/.test(raw)) return null;
 
   let name: string | undefined;
   let bare = raw;
