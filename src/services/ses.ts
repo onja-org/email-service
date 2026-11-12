@@ -103,7 +103,7 @@ export function createSesService(cfg: Config, log: { info: (o: unknown, m?: stri
       if (!out.MessageId) throw new SendError('SES returned no MessageId', true);
       return { sesMessageId: out.MessageId };
     } catch (err) {
-      throw classify(err);
+      throw classifySendError(err);
     }
   }
 
@@ -228,10 +228,15 @@ function isAlreadyExists(err: unknown): boolean {
   return err instanceof SESv2ServiceException && err.name === 'AlreadyExistsException';
 }
 
-function classify(err: unknown): SendError {
+export function classifySendError(err: unknown): SendError {
   if (err instanceof SendError) return err;
   if (err instanceof MessageRejected) {
-    return new SendError(err.message, false, err.name);
+    // "Email address is not verified" is usually permanent, but SES also reports it
+    // for a short while after an identity is created or changed (seen right after
+    // attaching an already-verified domain). Retrying with backoff covers that window;
+    // a genuinely unverified sender still ends up failed after MAX_SEND_ATTEMPTS.
+    const transientlyUnverified = /not verified/i.test(err.message);
+    return new SendError(err.message, transientlyUnverified, err.name);
   }
   if (err instanceof SESv2ServiceException) {
     const status = err.$metadata.httpStatusCode ?? 500;
