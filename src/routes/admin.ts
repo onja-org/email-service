@@ -30,7 +30,7 @@ const domainSchema = z
  */
 export const adminRoutes: FastifyPluginAsync = async (instance) => {
   const app = instance.withTypeProvider<ZodTypeProvider>();
-  app.addHook('preHandler', requireAdmin);
+  app.addHook('preValidation', requireAdmin);
 
   // ---- Projects -------------------------------------------------------------
 

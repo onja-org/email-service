@@ -8,6 +8,13 @@ import { getMessage, listEvents, listMessages, type MessageRow } from '../servic
 
 const addressList = z.array(z.string().min(3).max(320)).max(50);
 
+/** SES message tags: ASCII letters, digits, underscore, dash; ≤256 chars; ≤50 per message (2 are ours). */
+const tagToken = z.string().regex(/^[A-Za-z0-9_-]{1,256}$/, 'Only letters, digits, "_" and "-" (max 256 chars)');
+const tagsSchema = z
+  .record(tagToken, tagToken)
+  .refine((t) => Object.keys(t).length <= 48, { message: 'At most 48 tags' })
+  .refine((t) => !Object.keys(t).some((k) => k.startsWith('emailsvc_')), { message: 'Tag names starting with "emailsvc_" are reserved' });
+
 export const sendBodySchema = z.object({
   from: z.string().min(3).max(320),
   to: addressList.min(1),
@@ -20,7 +27,7 @@ export const sendBodySchema = z.object({
   template: z.string().min(1).max(100).optional(),
   template_data: z.record(z.unknown()).optional(),
   headers: z.record(z.string().max(1000)).optional(),
-  tags: z.record(z.string().max(256)).optional(),
+  tags: tagsSchema.optional(),
   idempotency_key: z.string().min(1).max(255).optional(),
 });
 
@@ -60,7 +67,7 @@ export function serializeMessage(m: MessageRow, includeBody = false) {
 
 export const emailRoutes: FastifyPluginAsync = async (instance) => {
   const app = instance.withTypeProvider<ZodTypeProvider>();
-  app.addHook('preHandler', requireApiKey);
+  app.addHook('preValidation', requireApiKey);
 
   app.post('/emails', { schema: { body: sendBodySchema } }, async (req, reply) => {
     const { message, created } = await submitEmail({ db: app.db, queue: app.queue }, req.auth!, req.body);

@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import MessageValidator from 'sns-validator';
-import { badRequest } from '../lib/errors.js';
+import { badRequest, HttpError } from '../lib/errors.js';
 import { applySesEvent, type SesEvent } from '../services/events.js';
 
 interface SnsEnvelope {
@@ -36,7 +36,14 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
     if (typeof req.body !== 'object' || req.body === null) throw badRequest('invalid_body', 'Expected SNS JSON');
     const env = await verifySns(req.body);
 
-    if (app.cfg.SNS_EVENTS_TOPIC_ARN && env.TopicArn !== app.cfg.SNS_EVENTS_TOPIC_ARN) {
+    // A valid signature only proves the message came from SNS, not from *our* topic.
+    // Without a configured topic anyone could subscribe this URL to their own topic
+    // and inject fake bounces/complaints into the suppression list.
+    if (!app.cfg.SNS_EVENTS_TOPIC_ARN) {
+      req.log.error({ topic: env.TopicArn }, 'SNS message received but SNS_EVENTS_TOPIC_ARN is not configured');
+      throw new HttpError(503, 'webhook_not_configured', 'SNS_EVENTS_TOPIC_ARN is not set on this service');
+    }
+    if (env.TopicArn !== app.cfg.SNS_EVENTS_TOPIC_ARN) {
       req.log.warn({ topic: env.TopicArn }, 'SNS message from unexpected topic');
       throw badRequest('unexpected_topic', 'Message is not from the configured SNS topic');
     }
@@ -44,7 +51,7 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
     if (env.Type === 'SubscriptionConfirmation') {
       const url = new URL(env.SubscribeURL ?? '');
       if (!url.hostname.endsWith('.amazonaws.com')) throw badRequest('bad_subscribe_url', 'Refusing non-AWS SubscribeURL');
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
       req.log.info({ topic: env.TopicArn, status: res.status }, 'confirmed SNS subscription');
       return reply.status(200).send({ confirmed: res.ok });
     }

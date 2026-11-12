@@ -33,7 +33,7 @@ const serialize = (t: Template) => ({
 
 export const templateRoutes: FastifyPluginAsync = async (instance) => {
   const app = instance.withTypeProvider<ZodTypeProvider>();
-  app.addHook('preHandler', requireApiKey);
+  app.addHook('preValidation', requireApiKey);
 
   app.get('/templates', async (req) => ({
     data: (await listTemplates(app.db, req.auth!.project.id)).map(serialize),

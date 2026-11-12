@@ -35,8 +35,8 @@ async function main() {
   console.log(`DLQ:        ${dlq.url}`);
 
   const queue = await createQueue(`${prefix}-send`, {
-    // Must exceed the worst-case time to call SES, and is overridden per-retry by the worker.
-    VisibilityTimeout: '120',
+    // Must exceed the worst-case time to call SES (a few seconds); the worker overrides it per retry.
+    VisibilityTimeout: '60',
     ReceiveMessageWaitTimeSeconds: '20',
     MessageRetentionPeriod: String(4 * 86400),
     RedrivePolicy: JSON.stringify({ deadLetterTargetArn: dlq.arn, maxReceiveCount: 5 }),

@@ -36,6 +36,7 @@ npm run build   # tsc → dist/
    AWS_REGION=eu-west-1 WEBHOOK_URL=https://email.internal.example.com/webhooks/ses npm run setup:aws
    ```
    Copy the printed `SQS_QUEUE_URL` and `SNS_EVENTS_TOPIC_ARN` into the environment.
+   The webhook only accepts events from that topic and returns 503 until `SNS_EVENTS_TOPIC_ARN` is set, so nobody can feed fake bounces into the suppression list from a topic of their own.
 3. **Request SES production access** (AWS console → SES → Account dashboard). New accounts are sandboxed: they can only send to verified addresses. Describe it as transactional email for internal company applications; approval usually takes under a day.
 4. **Deploy the container** (see §7) with the variables from `.env.example`. It runs migrations on start, then confirms the SNS subscription automatically when the first SNS request arrives.
 
@@ -218,6 +219,7 @@ docker run -d --name email-service -p 3000:3000 --env-file .env email-service
 - **Logs** are JSON (pino). Every request has a `reqId`; worker lines carry `messageId`.
 - **Stale queue sweep.** If a message was stored but the SQS enqueue failed, the worker re-enqueues it after 10 minutes.
 - **DLQ.** Messages that fail 5 receives land in `emailsvc-send-dlq`; the DB row will be `failed` with `last_error`.
+- **Worker crash mid-send.** A message left in `sending` is re-claimable after 5 minutes; redeliveries wait for that, and the sweep re-enqueues anything stuck for 10 minutes, so a dead worker never loses an email.
 - **Rotate a key:** create a new one, switch the project, revoke the old (`DELETE /admin/projects/:slug/keys/:id`).
 - **Remove a domain from SES too:** `DELETE /admin/projects/:slug/domains/:domain?delete_identity=true`.
 - **Schema changes:** add `migrations/00N_name.sql`; applied automatically on container start (advisory-locked, so parallel replicas are safe).

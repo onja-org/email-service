@@ -5,7 +5,8 @@ import { backoffSeconds, type Queue, type QueuedJob } from './services/queue.js'
 import { SendError, type SesService } from './services/ses.js';
 import {
   claimForSending,
-  findStaleQueued,
+  findStale,
+  getMessage,
   markFailed,
   markRetry,
   markSent,
@@ -27,6 +28,8 @@ export interface Worker {
 
 const STALE_SWEEP_INTERVAL_MS = 60_000;
 const STALE_AFTER_MINUTES = 10;
+/** How long to hide a job whose message another worker is currently sending (> claim's 5-minute lease). */
+const IN_FLIGHT_RETRY_SECONDS = 330;
 
 /**
  * SQS consumer. One long-poll loop; each batch (up to 10) is processed concurrently.
@@ -48,8 +51,17 @@ export function createWorker(deps: WorkerDeps): Worker {
 
     const message = await claimForSending(db, id);
     if (!message) {
-      jlog.debug('message not claimable (already sent/failed or in flight); dropping job');
-      await queue.ack(q);
+      // Either a duplicate delivery of a finished message, or another worker holds
+      // the claim right now. In the second case keep the job: if that worker dies
+      // mid-send, this redelivery is what rescues the message after the lease expires.
+      const current = await getMessage(db, id);
+      if (current?.status === 'sending') {
+        jlog.info('message in flight on another worker; will retry later');
+        await queue.retryLater(q, IN_FLIGHT_RETRY_SECONDS);
+      } else {
+        jlog.debug({ status: current?.status ?? 'missing' }, 'message not claimable; dropping job');
+        await queue.ack(q);
+      }
       return;
     }
 
@@ -83,7 +95,8 @@ export function createWorker(deps: WorkerDeps): Worker {
         text: message.text ?? undefined,
         headers: message.headers,
         configurationSet: project.config_set,
-        tags: { emailsvc_message_id: message.id, emailsvc_project: project.slug, ...message.tags },
+        // Ours last: the correlation tags must never be overridden by caller tags.
+        tags: { ...message.tags, emailsvc_message_id: message.id, emailsvc_project: project.slug },
       });
       await markSent(db, id, sesMessageId);
       await queue.ack(q);
@@ -122,15 +135,19 @@ export function createWorker(deps: WorkerDeps): Worker {
     }
   }
 
-  /** Re-enqueue messages that were persisted but never made it to SQS. */
+  /**
+   * Re-enqueue messages that were persisted but never made it to SQS, and
+   * messages left in "sending" by a worker that died (their SQS job may have
+   * been dead-lettered by then).
+   */
   async function sweepStale(): Promise<void> {
     try {
-      const ids = await findStaleQueued(db, STALE_AFTER_MINUTES);
+      const ids = await findStale(db, STALE_AFTER_MINUTES);
       for (const id of ids) {
         await queue.enqueue({ messageId: id });
         await touch(db, id);
       }
-      if (ids.length) log.warn({ count: ids.length }, 're-enqueued stale queued messages');
+      if (ids.length) log.warn({ count: ids.length }, 're-enqueued stale messages');
     } catch (err) {
       log.error({ err }, 'stale sweep failed');
     }

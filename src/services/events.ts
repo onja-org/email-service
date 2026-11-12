@@ -38,11 +38,15 @@ export interface Interpretation {
   suppress: { email: string; reason: 'bounce' | 'complaint'; note: string }[];
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** Pure translation of an SES event into the state changes it implies. */
 export function interpretSesEvent(ev: SesEvent): Interpretation {
   const type = (ev.eventType ?? ev.notificationType ?? 'Unknown').toString();
   const sesMessageId = ev.mail?.messageId ?? null;
-  const taggedMessageId = ev.mail?.tags?.emailsvc_message_id?.[0] ?? null;
+  const tagged = ev.mail?.tags?.emailsvc_message_id?.[0];
+  // Only trust the tag when it is shaped like our ids; a malformed value would make the uuid lookup throw.
+  const taggedMessageId = tagged && UUID_RE.test(tagged) ? tagged : null;
   const out: Interpretation = { type, sesMessageId, taggedMessageId, newStatus: null, suppress: [] };
 
   switch (type) {

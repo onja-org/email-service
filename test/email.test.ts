@@ -19,6 +19,12 @@ describe('parseAddress', () => {
     expect(a?.raw).toBe('"Acme Support" <support@acme.io>');
   });
 
+  it('rejects header-injection characters anywhere in the address', () => {
+    expect(parseAddress('Ada\r\nBcc: x@y.z <ada@example.com>')).toBeNull();
+    expect(parseAddress('Ada\r <ada@example.com>')).toBeNull();
+    expect(parseAddress('ada@example.com\n')).not.toBeNull(); // trailing whitespace is trimmed, not an injection
+  });
+
   it('rejects malformed input', () => {
     for (const bad of ['', 'nope', 'a@b', 'a @b.com', '<a@b.com', 'a@b.com>', 'x@y@z.com']) {
       expect(parseAddress(bad), bad).toBeNull();

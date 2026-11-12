@@ -93,7 +93,9 @@ export function createSesService(cfg: Config, log: { info: (o: unknown, m?: stri
                 ...(email.html ? { Html: { Data: email.html, Charset: 'UTF-8' } } : {}),
                 ...(email.text ? { Text: { Data: email.text, Charset: 'UTF-8' } } : {}),
               },
-              Headers: Object.entries(email.headers).map(([Name, Value]) => ({ Name, Value })),
+              ...(Object.keys(email.headers).length
+                ? { Headers: Object.entries(email.headers).map(([Name, Value]) => ({ Name, Value })) }
+                : {}),
             },
           },
         }),
@@ -233,6 +235,9 @@ function classify(err: unknown): SendError {
   }
   if (err instanceof SESv2ServiceException) {
     const status = err.$metadata.httpStatusCode ?? 500;
+    // Account-level pause (SES or an operator switched sending off) clears without
+    // touching the message, so keep retrying rather than failing every email.
+    if (err.name === 'SendingPausedException') return new SendError(err.message, true, err.name);
     const permanent =
       err.name === 'MailFromDomainNotVerifiedException' ||
       err.name === 'AccountSuspendedException' ||

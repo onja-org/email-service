@@ -17,7 +17,7 @@ function bearer(req: FastifyRequest): string | null {
   return scheme?.toLowerCase() === 'bearer' && token ? token.trim() : null;
 }
 
-/** preHandler: resolves `Authorization: Bearer es_live_...` to a project. */
+/** preValidation hook (runs before schema validation, so unauthenticated callers never see schema details): resolves `Authorization: Bearer es_live_...` to a project. */
 export async function requireApiKey(req: FastifyRequest, _reply: FastifyReply): Promise<void> {
   const token = bearer(req);
   if (!token || !looksLikeApiKey(token)) throw unauthorized();
@@ -27,7 +27,7 @@ export async function requireApiKey(req: FastifyRequest, _reply: FastifyReply): 
   req.log = req.log.child({ project: auth.project.slug });
 }
 
-/** preHandler: checks the static ADMIN_TOKEN for management routes. */
+/** preValidation hook: checks the static ADMIN_TOKEN for management routes. */
 export async function requireAdmin(req: FastifyRequest, _reply: FastifyReply): Promise<void> {
   const token = bearer(req);
   const expected = req.server.cfg.ADMIN_TOKEN;
