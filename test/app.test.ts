@@ -180,6 +180,7 @@ describe('admin UI sessions', () => {
     }
     const home = await app.inject({ method: 'GET', url: '/' });
     expect(home.body).toContain('<title>Email service developer guide</title>');
+    expect(home.body).toContain('href="/admin/login"');
   });
 
   it('rejects a wrong token and locks out after repeated failures', async () => {

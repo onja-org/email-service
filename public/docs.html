@@ -59,6 +59,10 @@
   article td code, article th code { white-space: nowrap; }
   .status-flow { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; overflow-x: auto; white-space: pre; }
 
+  .signin { display: inline-flex; align-items: center; height: 32px; padding: 0 14px; border-radius: 8px; background: var(--accent); color: #fff; text-decoration: none; font-weight: 600; font-size: 13px; }
+  .signin:hover { filter: brightness(1.08); }
+  .signin:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
   @media (max-width: 860px) {
     .layout { grid-template-columns: minmax(0, 1fr); }
     .toc { display: none; }
@@ -71,6 +75,8 @@
   <div class="topbar">
     <h1>Email service</h1>
     <span class="sub">Developer guide</span>
+    <span class="spacer"></span>
+    <a class="signin" id="signin" href="/admin/login">Sign in</a>
   </div>
 
   <div class="layout">
@@ -945,6 +951,14 @@ if errors.As(err, &amp;apiErr) &amp;&amp; apiErr.Code == "invalid_recipient" {
     python: 'Python 3.8 or later, with requests.',
     go: 'Go 1.21 or later. Standard library only.',
   };
+
+  // Already signed in? Go straight to the admin UI instead of the login form.
+  fetch('/admin/auth/me').then((res) => {
+    if (!res.ok) return;
+    const a = document.getElementById('signin');
+    a.href = '/admin/ui';
+    a.textContent = 'Open admin';
+  }).catch(() => {});
 
   // Fill in this deployment's URL. textContent only: never parse it as HTML.
   for (const el of document.querySelectorAll('.origin')) el.textContent = location.origin;
