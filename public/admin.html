@@ -14,6 +14,7 @@
       <a href="#/projects" data-route="projects">Projects</a>
       <a href="#/suppressions" data-route="suppressions">Suppressions</a>
       <a href="/dashboard">Dashboard</a>
+      <a href="/">Developer guide</a>
     </nav>
     <span class="spacer"></span>
     <span class="sub" id="who"></span>
@@ -160,9 +161,18 @@
       const dns = identity?.dnsRecords?.length
         ? el('details', { open: !identity.verified }, [
             el('summary', { text: `DNS records (${identity.dnsRecords.length})` }),
-            table(['Type', 'Name', 'Value', 'Purpose', ''], identity.dnsRecords.map((r) => el('tr', {}, [
-              el('td', { text: r.type }), el('td', { class: 'wrap' }, el('code', { text: r.name })), el('td', { class: 'wrap' }, el('code', { text: r.value })),
-              el('td', { class: 'sub', text: r.purpose }), el('td', {}, copyButton(r.value)),
+            el('p', { class: 'sub' }, [
+              'Add these at the DNS provider for ', el('code', { text: domain }), '. Enter the ', el('strong', { text: 'Host' }),
+              ' column exactly as shown: Namecheap, GoDaddy, Cloudflare and most registrars append the domain themselves, so typing the full name creates ',
+              el('code', { text: `…${domain}.${domain}` }), ' and verification never completes. For MX, enter the value without the leading priority number and put 10 in the priority field.',
+            ]),
+            table(['Type', 'Host', '', 'Value', '', 'Purpose'], identity.dnsRecords.map((r) => el('tr', {}, [
+              el('td', { text: r.type }),
+              el('td', { class: 'wrap' }, [el('code', { text: r.host ?? r.name }), el('div', { class: 'muted', style: 'font-size:11px' }, [`full name: ${r.name}`])]),
+              el('td', {}, copyButton(r.host ?? r.name)),
+              el('td', { class: 'wrap' }, el('code', { text: r.value })),
+              el('td', {}, copyButton(r.value)),
+              el('td', { class: 'sub', text: r.purpose }),
             ])), ''),
           ])
         : null;

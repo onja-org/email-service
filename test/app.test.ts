@@ -173,12 +173,13 @@ describe('admin UI sessions', () => {
   const cookieOf = (res: { headers: Record<string, unknown> }) => String(res.headers['set-cookie']).split(';')[0];
 
   it('serves the login, admin and dashboard pages without auth, with a CSP', async () => {
-    for (const url of ['/admin/login', '/admin/ui', '/dashboard']) {
+    for (const url of ['/', '/docs', '/admin/login', '/admin/ui', '/dashboard']) {
       const res = await app.inject({ method: 'GET', url });
       expect(res.statusCode, url).toBe(200);
       expect(res.headers['content-security-policy']).toContain("frame-ancestors 'none'");
     }
-    expect((await app.inject({ method: 'GET', url: '/' })).headers.location).toBe('/admin/ui');
+    const home = await app.inject({ method: 'GET', url: '/' });
+    expect(home.body).toContain('<title>Email service developer guide</title>');
   });
 
   it('rejects a wrong token and locks out after repeated failures', async () => {
@@ -299,7 +300,6 @@ describe('POST /v1/emails', () => {
     expect(page.statusCode).toBe(200);
     expect(page.headers['content-type']).toContain('text/html');
     expect(page.body).toContain('<title>Email delivery</title>');
-    expect((await app.inject({ method: 'GET', url: '/' })).statusCode).toBe(302);
 
     const noToken = await app.inject({ method: 'GET', url: '/admin/stats/summary' });
     expect(noToken.statusCode).toBe(401);

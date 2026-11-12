@@ -75,6 +75,9 @@ curl -s -X POST $BASE/admin/projects -H "$A" -H 'content-type: application/json'
 
 ```bash
 # 2. Attach its domain. Response lists the DNS records to add (DKIM CNAMEs, MAIL FROM MX/TXT, DMARC TXT).
+#    Each record has "name" (fully qualified) and "host" (relative, e.g. "abc._domainkey"). Registrar panels
+#    want the relative "host": they append the domain themselves, and a full name there silently becomes
+#    "abc._domainkey.example.com.example.com", which SES never sees.
 curl -s -X POST $BASE/admin/projects/billing/domains -H "$A" -H 'content-type: application/json' \
   -d '{"domain":"billing.example.com"}'
 ```
@@ -95,6 +98,8 @@ A project may have several domains; it may send from any of them or their subdom
 ## 5. Sending (project API)
 
 Projects call `/v1/*` with `Authorization: Bearer es_live_...`.
+
+**The service's home page (`/`, also `/docs`) is the developer guide** for project teams: setup, sending, templates, retries with idempotency keys, delivery tracking, suppressions and error codes, with copy-paste clients for Node.js, Python and Go. It is public and static (no data, no auth), so you can send developers straight to the service URL. The source is `public/docs.html`.
 
 ```bash
 curl -s -X POST $BASE/v1/emails -H "Authorization: Bearer es_live_..." -H 'content-type: application/json' -d '{
@@ -132,7 +137,9 @@ curl -s -X POST $BASE/v1/emails -H "Authorization: Bearer es_live_..." -H 'conte
 
 Templates are Handlebars. `{{var}}` is HTML-escaped in the html body; use `{{{var}}}` for trusted HTML.
 
-### Node.js client (any project)
+### Minimal Node.js call
+
+For full clients in Node.js, Python and Go, see the developer guide at `/`.
 
 ```ts
 const res = await fetch(`${process.env.EMAIL_SERVICE_URL}/v1/emails`, {
@@ -165,6 +172,7 @@ const { id } = await res.json();
 | `GET/DELETE` | `/admin/suppressions/:email` | Look up an entry; admins can remove any entry |
 | `GET` | `/admin/projects/:slug/emails`, `/admin/emails/:id`, `/admin/projects/:slug/templates` | Read-only views of a project's messages (with events) and templates |
 | `POST` | `/admin/auth/login`, `/admin/auth/logout`; `GET /admin/auth/me` | Admin UI sessions (login body: `{"token": "<ADMIN_TOKEN>"}`) |
+| `GET` | `/`, `/docs` | Developer guide (public, static) |
 | `GET` | `/admin/login`, `/admin/ui`, `/dashboard` | Admin UI pages |
 | `POST` | `/webhooks/ses` | SNS → SES events (signature-verified) |
 | `GET` | `/health`, `/ready` | Liveness / readiness |

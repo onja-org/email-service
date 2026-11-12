@@ -1,0 +1,1009 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Email service developer guide</title>
+<meta name="description" content="Send transactional email from Node.js, Python and Go through the shared email service.">
+<link rel="stylesheet" href="/ui.css">
+<style>
+  main { max-width: 1180px; }
+  .layout { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 32px; align-items: start; }
+  .toc { position: sticky; top: 16px; font-size: 13px; }
+  .toc ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  .toc a { display: block; text-decoration: none; color: var(--ink-2); padding: 4px 8px; border-radius: 6px; }
+  .toc a:hover { background: var(--wash); color: var(--ink); }
+  .toc a.active { color: var(--ink); background: var(--wash); font-weight: 600; }
+  .toc .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding: 0 8px 6px; }
+
+  article { min-width: 0; max-width: 820px; font-size: 15px; line-height: 1.6; }
+  article section { scroll-margin-top: 64px; padding-top: 8px; margin-bottom: 36px; }
+  article h2 { font-size: 20px; margin: 0 0 10px; }
+  article h3 { font-size: 15px; color: var(--ink); margin: 22px 0 6px; }
+  article p, article ul, article ol { margin: 0 0 12px; }
+  article li + li { margin-top: 4px; }
+  article :not(pre) > code { font-size: 13px; background: var(--wash); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
+  .hero { margin: 8px 0 28px; }
+  .hero h1 { font-size: 30px; line-height: 1.2; margin-bottom: 8px; letter-spacing: -0.01em; }
+  .hero p { color: var(--ink-2); font-size: 16px; max-width: 640px; margin: 0 0 16px; }
+  .base { display: inline-flex; gap: 10px; align-items: center; flex-wrap: wrap; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; font-size: 13px; }
+  .base code { font-size: 13px; user-select: all; word-break: break-all; }
+
+  /* Language switcher, pinned while scrolling */
+  .langbar { position: sticky; top: 0; z-index: 2; background: var(--page); padding: 10px 0; margin-bottom: 8px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .langbar .sub { font-size: 13px; }
+  .tabs { display: inline-flex; background: var(--wash); border: 1px solid var(--border); border-radius: 9px; padding: 2px; }
+  .tabs button { border: 0; background: transparent; height: 30px; padding: 0 14px; border-radius: 7px; color: var(--ink-2); }
+  .tabs button:hover { background: transparent; color: var(--ink); }
+  .tabs button[aria-selected="true"] { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+
+  /* Code blocks */
+  .code { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); margin: 10px 0 16px; overflow: hidden; }
+  .code-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 6px 4px 12px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink-2); }
+  .code-head .file { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .code pre { margin: 0; border: 0; border-radius: 0; background: var(--page); max-height: none; padding: 12px 14px; font-size: 12.5px; line-height: 1.55; tab-size: 4; }
+  .code pre code { font-size: inherit; }
+  .code[data-lang]:not([data-lang="shell"]) { display: none; }
+  body[data-lang="node"] .code[data-lang="node"],
+  body[data-lang="python"] .code[data-lang="python"],
+  body[data-lang="go"] .code[data-lang="go"] { display: block; }
+  .copy.done { color: var(--good-text); border-color: var(--good); }
+
+  .callout { border-left: 3px solid var(--accent); background: var(--surface); border-radius: 0 8px 8px 0; padding: 10px 14px; margin: 12px 0 16px; font-size: 14px; }
+  .callout.warn { border-left-color: var(--warning); }
+  .callout p:last-child { margin-bottom: 0; }
+  .steps { counter-reset: step; list-style: none; padding: 0; }
+  .steps > li { counter-increment: step; position: relative; padding-left: 34px; margin-bottom: 10px; }
+  .steps > li::before { content: counter(step); position: absolute; left: 0; top: 1px; width: 22px; height: 22px; border-radius: 50%; background: var(--wash); border: 1px solid var(--border); font-size: 12px; font-weight: 600; display: grid; place-items: center; }
+  article table { font-size: 13.5px; margin: 8px 0 16px; }
+  article td code, article th code { white-space: nowrap; }
+  .status-flow { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; overflow-x: auto; white-space: pre; }
+
+  @media (max-width: 860px) {
+    .layout { grid-template-columns: minmax(0, 1fr); }
+    .toc { display: none; }
+    .hero h1 { font-size: 24px; }
+  }
+</style>
+</head>
+<body data-lang="node">
+<main>
+  <div class="topbar">
+    <h1>Email service</h1>
+    <nav>
+      <a href="/" aria-current="page">Developer guide</a>
+      <a href="/admin/ui">Admin</a>
+      <a href="/dashboard">Dashboard</a>
+    </nav>
+  </div>
+
+  <div class="layout">
+    <aside class="toc" aria-label="On this page">
+      <div class="label">On this page</div>
+      <ol id="toc">
+        <li><a href="#before">Before you start</a></li>
+        <li><a href="#client">Set up a client</a></li>
+        <li><a href="#send">Send an email</a></li>
+        <li><a href="#response">Read the response</a></li>
+        <li><a href="#retries">Retries and idempotency</a></li>
+        <li><a href="#templates">Templates</a></li>
+        <li><a href="#status">Track delivery</a></li>
+        <li><a href="#list">List your emails</a></li>
+        <li><a href="#suppressions">Suppressions</a></li>
+        <li><a href="#errors">Errors</a></li>
+        <li><a href="#reference">API reference</a></li>
+      </ol>
+    </aside>
+
+    <article>
+      <div class="hero">
+        <h1>Send email from your app</h1>
+        <p>This service sends your project's transactional email through Amazon SES. You make one HTTPS call and the service validates, queues, sends, and tracks delivery. It also skips addresses that have bounced or complained. This guide covers Node.js, Python and Go.</p>
+        <div class="base"><span class="muted">Base URL</span> <code class="origin">https://email.example.com</code></div>
+      </div>
+
+      <div class="langbar">
+        <div class="tabs" role="tablist" aria-label="Language">
+          <button type="button" role="tab" data-lang="node" aria-selected="true">Node.js</button>
+          <button type="button" role="tab" data-lang="python" aria-selected="false">Python</button>
+          <button type="button" role="tab" data-lang="go" aria-selected="false">Go</button>
+        </div>
+        <span class="sub" id="lang-req">Node.js 18 or later. No dependencies.</span>
+      </div>
+
+      <section id="before">
+        <h2>Before you start</h2>
+        <p>Ask the service admin for two things:</p>
+        <ol class="steps">
+          <li><strong>A project with a verified sending domain</strong>, for example <code>billing.example.com</code>. You can send from any address on that domain or its subdomains, and from nothing else.</li>
+          <li><strong>An API key</strong> for that project. It starts with <code>es_live_</code> and is shown only once, so put it straight into your secret store.</li>
+        </ol>
+        <p>Give your app both values as environment variables:</p>
+        <div class="code" data-lang="shell">
+          <div class="code-head"><span class="file">.env</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>EMAIL_SERVICE_URL=<span class="origin">https://email.example.com</span>
+EMAIL_SERVICE_KEY=es_live_xxxxxxxxxxxxxxxxxxxxxxxx</code></pre>
+        </div>
+        <div class="callout warn"><p>Treat the key like a password. Use it only from server-side code, never from a browser or mobile app. Anyone holding it can send mail as your project.</p></div>
+      </section>
+
+      <section id="client">
+        <h2>Set up a client</h2>
+        <p>The API is plain JSON over HTTPS, so you don't need an SDK. Copy this small helper into your project. It adds the key to every request and turns error responses into an exception you can inspect. Every example below uses it.</p>
+
+        <div class="code" data-lang="node">
+          <div class="code-head"><span class="file">emailService.js</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>const BASE = process.env.EMAIL_SERVICE_URL.replace(/\/+$/, '');
+const KEY = process.env.EMAIL_SERVICE_KEY;
+
+export class EmailServiceError extends Error {
+  constructor(status, body) {
+    super(body?.error?.message ?? `HTTP ${status}`);
+    this.status = status;
+    this.code = body?.error?.code;
+    this.details = body?.error?.details;
+  }
+}
+
+export async function api(method, path, body) {
+  const res = await fetch(BASE + path, {
+    method,
+    headers: {
+      authorization: `Bearer ${KEY}`,
+      ...(body !== undefined &amp;&amp; { 'content-type': 'application/json' }),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (res.status === 204) return null;
+  const data = await res.json().catch(() =&gt; null);
+  if (!res.ok) throw new EmailServiceError(res.status, data);
+  return data;
+}</code></pre>
+        </div>
+
+        <div class="code" data-lang="python">
+          <div class="code-head"><span class="file">shell</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>pip install requests</code></pre>
+        </div>
+        <div class="code" data-lang="python">
+          <div class="code-head"><span class="file">email_service.py</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>import os
+
+import requests
+
+BASE = os.environ["EMAIL_SERVICE_URL"].rstrip("/")
+KEY = os.environ["EMAIL_SERVICE_KEY"]
+
+_session = requests.Session()
+_session.headers["Authorization"] = f"Bearer {KEY}"
+
+
+class EmailServiceError(Exception):
+    def __init__(self, status, body):
+        err = (body or {}).get("error") or {}
+        super().__init__(err.get("message") or f"HTTP {status}")
+        self.status = status
+        self.code = err.get("code")
+        self.details = err.get("details")
+
+
+def api(method, path, body=None, params=None):
+    res = _session.request(method, BASE + path, json=body, params=params, timeout=10)
+    if res.status_code == 204:
+        return None
+    try:
+        data = res.json()
+    except ValueError:
+        data = None
+    if not res.ok:
+        raise EmailServiceError(res.status_code, data)
+    return data</code></pre>
+        </div>
+
+        <div class="code" data-lang="go">
+          <div class="code-head"><span class="file">emailservice/client.go</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>package emailservice
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+)
+
+type Client struct {
+	BaseURL string
+	APIKey  string
+	HTTP    *http.Client
+}
+
+// New reads EMAIL_SERVICE_URL and EMAIL_SERVICE_KEY from the environment.
+func New() *Client {
+	return &amp;Client{
+		BaseURL: strings.TrimRight(os.Getenv("EMAIL_SERVICE_URL"), "/"),
+		APIKey:  os.Getenv("EMAIL_SERVICE_KEY"),
+		HTTP:    &amp;http.Client{Timeout: 10 * time.Second},
+	}
+}
+
+// APIError is returned for any 4xx or 5xx response.
+type APIError struct {
+	Status  int             `json:"-"`
+	Code    string          `json:"code"`
+	Message string          `json:"message"`
+	Details json.RawMessage `json:"details,omitempty"`
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("email service: %d %s: %s", e.Status, e.Code, e.Message)
+}
+
+// Do sends a JSON request. in may be nil; out may be nil to discard the body.
+func (c *Client) Do(ctx context.Context, method, path string, in, out any) error {
+	var body io.Reader
+	if in != nil {
+		b, err := json.Marshal(in)
+		if err != nil {
+			return err
+		}
+		body = bytes.NewReader(b)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	if in != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode &gt;= 400 {
+		var e struct {
+			Error APIError `json:"error"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&amp;e)
+		e.Error.Status = resp.StatusCode
+		if e.Error.Message == "" {
+			e.Error.Message = http.StatusText(resp.StatusCode)
+		}
+		return &amp;e.Error
+	}
+	if out == nil || resp.StatusCode == http.StatusNoContent {
+		return nil
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
+}</code></pre>
+        </div>
+        <p data-lang-note="go" hidden>Go 1.21 or later, standard library only. Next, add the request and response types. The <code>omitempty</code> tags matter: optional fields must be left out of the JSON, not sent as <code>null</code>.</p>
+        <div class="code" data-lang="go">
+          <div class="code-head"><span class="file">emailservice/types.go</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>package emailservice
+
+import (
+	"context"
+	"time"
+)
+
+type SendRequest struct {
+	From           string            `json:"from"`
+	To             []string          `json:"to"`
+	Cc             []string          `json:"cc,omitempty"`
+	Bcc            []string          `json:"bcc,omitempty"`
+	ReplyTo        []string          `json:"reply_to,omitempty"`
+	Subject        string            `json:"subject,omitempty"`
+	HTML           string            `json:"html,omitempty"`
+	Text           string            `json:"text,omitempty"`
+	Template       string            `json:"template,omitempty"`
+	TemplateData   map[string]any    `json:"template_data,omitempty"`
+	Headers        map[string]string `json:"headers,omitempty"`
+	Tags           map[string]string `json:"tags,omitempty"`
+	IdempotencyKey string            `json:"idempotency_key,omitempty"`
+}
+
+type Email struct {
+	ID                   string            `json:"id"`
+	Status               string            `json:"status"`
+	From                 string            `json:"from"`
+	To                   []string          `json:"to"`
+	SuppressedRecipients []string          `json:"suppressed_recipients"`
+	Subject              string            `json:"subject"`
+	Template             string            `json:"template"`
+	Tags                 map[string]string `json:"tags"`
+	SESMessageID         string            `json:"ses_message_id"`
+	Attempts             int               `json:"attempts"`
+	LastError            string            `json:"last_error"`
+	IdempotencyKey       string            `json:"idempotency_key"`
+	CreatedAt            time.Time         `json:"created_at"`
+	SentAt               *time.Time        `json:"sent_at"`
+	IdempotentReplay     bool              `json:"idempotent_replay"`
+}
+
+func (c *Client) Send(ctx context.Context, msg SendRequest) (*Email, error) {
+	var e Email
+	if err := c.Do(ctx, "POST", "/v1/emails", msg, &amp;e); err != nil {
+		return nil, err
+	}
+	return &amp;e, nil
+}
+
+func (c *Client) GetEmail(ctx context.Context, id string) (*Email, error) {
+	var e Email
+	if err := c.Do(ctx, "GET", "/v1/emails/"+id, nil, &amp;e); err != nil {
+		return nil, err
+	}
+	return &amp;e, nil
+}</code></pre>
+        </div>
+      </section>
+
+      <section id="send">
+        <h2>Send an email</h2>
+        <p><code>POST /v1/emails</code> with a sender, at least one recipient, a subject and an HTML body, a text body, or both. Always send a text part as well when you can: some clients show only text, and spam filters score HTML-only mail worse.</p>
+
+        <div class="code" data-lang="node">
+          <div class="code-head"><span class="file">send.js</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>import { api } from './emailService.js';
+
+const email = await api('POST', '/v1/emails', {
+  from: 'Billing &lt;no-reply@billing.example.com&gt;',
+  to: ['ada@customer.com'],
+  reply_to: ['support@example.com'],
+  subject: 'Your invoice #42',
+  html: '&lt;p&gt;Hi Ada, your invoice for €120 is ready.&lt;/p&gt;',
+  text: 'Hi Ada, your invoice for €120 is ready.',
+  tags: { invoice: '42' },
+});
+
+console.log(email.id, email.status); // "8f1c…", "queued"</code></pre>
+        </div>
+        <div class="code" data-lang="python">
+          <div class="code-head"><span class="file">send.py</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>from email_service import api
+
+email = api("POST", "/v1/emails", {
+    "from": "Billing &lt;no-reply@billing.example.com&gt;",
+    "to": ["ada@customer.com"],
+    "reply_to": ["support@example.com"],
+    "subject": "Your invoice #42",
+    "html": "&lt;p&gt;Hi Ada, your invoice for €120 is ready.&lt;/p&gt;",
+    "text": "Hi Ada, your invoice for €120 is ready.",
+    "tags": {"invoice": "42"},
+})
+
+print(email["id"], email["status"])  # "8f1c…", "queued"</code></pre>
+        </div>
+        <div class="code" data-lang="go">
+          <div class="code-head"><span class="file">main.go</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"yourapp/emailservice"
+)
+
+func main() {
+	client := emailservice.New()
+
+	email, err := client.Send(context.Background(), emailservice.SendRequest{
+		From:    "Billing &lt;no-reply@billing.example.com&gt;",
+		To:      []string{"ada@customer.com"},
+		ReplyTo: []string{"support@example.com"},
+		Subject: "Your invoice #42",
+		HTML:    "&lt;p&gt;Hi Ada, your invoice for €120 is ready.&lt;/p&gt;",
+		Text:    "Hi Ada, your invoice for €120 is ready.",
+		Tags:    map[string]string{"invoice": "42"},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(email.ID, email.Status) // "8f1c…", "queued"
+}</code></pre>
+        </div>
+
+        <h3>Request fields</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead>
+            <tbody>
+              <tr><td><code>from</code></td><td>string</td><td><strong>Required.</strong> <code>addr@domain</code> or <code>Name &lt;addr@domain&gt;</code>. The domain must be one of your project's verified domains or a subdomain of one.</td></tr>
+              <tr><td><code>to</code></td><td>string[]</td><td><strong>Required.</strong> At least one. <code>to</code>, <code>cc</code> and <code>bcc</code> together may hold at most 50 addresses.</td></tr>
+              <tr><td><code>cc</code>, <code>bcc</code></td><td>string[]</td><td>Optional.</td></tr>
+              <tr><td><code>reply_to</code></td><td>string[]</td><td>Optional, up to 10.</td></tr>
+              <tr><td><code>subject</code></td><td>string</td><td>Required unless you use a template. With a template, it overrides the template's subject.</td></tr>
+              <tr><td><code>html</code>, <code>text</code></td><td>string</td><td>At least one is required unless you use a template.</td></tr>
+              <tr><td><code>template</code>, <code>template_data</code></td><td>string, object</td><td>Render a stored template. See <a href="#templates">Templates</a>.</td></tr>
+              <tr><td><code>tags</code></td><td>object</td><td>Up to 48 string pairs for your own reporting. Keys and values may contain only letters, digits, <code>_</code> and <code>-</code>. Keys may not start with <code>emailsvc_</code>.</td></tr>
+              <tr><td><code>headers</code></td><td>object</td><td>Extra headers, such as <code>List-Unsubscribe</code>. You can't set <code>From</code>, <code>To</code>, <code>Bcc</code>, <code>Subject</code>, <code>Return-Path</code> or other routing headers here.</td></tr>
+              <tr><td><code>idempotency_key</code></td><td>string</td><td>Up to 255 characters. See <a href="#retries">Retries and idempotency</a>.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="response">
+        <h2>Read the response</h2>
+        <p>The call returns as soon as the email is stored and queued. Sending happens in the background, usually within seconds. A successful call has one of two status codes, and your code should accept both:</p>
+        <ul>
+          <li><strong><code>202 Accepted</code></strong>: a new email was created.</li>
+          <li><strong><code>200 OK</code></strong> with <code>"idempotent_replay": true</code>: an earlier request already used this <code>idempotency_key</code>. You get the original email back, and nothing is sent again.</li>
+        </ul>
+        <div class="code" data-lang="shell">
+          <div class="code-head"><span class="file">202 response</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>{
+  "id": "8f1c2a8e-5b7d-4c1e-9a43-2f0c6d1b7e55",
+  "status": "queued",
+  "from": "Billing &lt;no-reply@billing.example.com&gt;",
+  "to": ["ada@customer.com"],
+  "cc": [],
+  "bcc": [],
+  "reply_to": ["support@example.com"],
+  "suppressed_recipients": [],
+  "subject": "Your invoice #42",
+  "template": null,
+  "tags": { "invoice": "42" },
+  "ses_message_id": null,
+  "attempts": 0,
+  "last_error": null,
+  "idempotency_key": null,
+  "created_at": "2026-11-12T09:30:00.000Z",
+  "sent_at": null,
+  "updated_at": "2026-11-12T09:30:00.000Z",
+  "idempotent_replay": false
+}</code></pre>
+        </div>
+        <h3>Suppressed recipients</h3>
+        <p>The service keeps a suppression list that all projects share. An address goes on it after a hard bounce or a spam complaint. Suppressed addresses are removed from the email before it is queued, and they are listed in <code>suppressed_recipients</code>. If <em>every</em> <code>to</code> address is suppressed, the status is <code>"suppressed"</code> and nothing is sent. The call still returns success, so check for this case when it matters to you, for example in a password reset flow:</p>
+        <div class="code" data-lang="node">
+          <div class="code-head"><span class="file">send.js</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>if (email.status === 'suppressed') {
+  // Nothing was sent. Ask the user for another address.
+} else if (email.suppressed_recipients.length) {
+  console.warn('Skipped suppressed recipients:', email.suppressed_recipients);
+}</code></pre>
+        </div>
+        <div class="code" data-lang="python">
+          <div class="code-head"><span class="file">send.py</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>if email["status"] == "suppressed":
+    # Nothing was sent. Ask the user for another address.
+    ...
+elif email["suppressed_recipients"]:
+    print("Skipped suppressed recipients:", email["suppressed_recipients"])</code></pre>
+        </div>
+        <div class="code" data-lang="go">
+          <div class="code-head"><span class="file">main.go</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>if email.Status == "suppressed" {
+	// Nothing was sent. Ask the user for another address.
+} else if len(email.SuppressedRecipients) &gt; 0 {
+	log.Printf("skipped suppressed recipients: %v", email.SuppressedRecipients)
+}</code></pre>
+        </div>
+      </section>
+
+      <section id="retries">
+        <h2>Retries and idempotency</h2>
+        <p>If a request times out, you can't tell whether the email was stored. Retrying without protection could send it twice. To prevent that, send an <code>idempotency_key</code> with every email. If the service sees a key again, it returns the email it already stored and sends nothing new.</p>
+        <p>The best key comes from the event that triggers the email, such as <code>invoice-42-sent</code> or <code>password-reset-&lt;token id&gt;</code>. A key like that also protects you when a job runs twice or your own process crashes and restarts. If there's no natural key, the helper below makes a random one for each email and reuses it on every retry of that email.</p>
+        <p>Retry network errors and <code>5xx</code> responses. Don't retry <code>4xx</code> responses, because the same request will fail the same way. Add this to the helper file, then use it for every send:</p>
+
+        <div class="code" data-lang="node">
+          <div class="code-head"><span class="file">emailService.js</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>import { randomUUID } from 'node:crypto';
+
+export async function sendEmail(message, { attempts = 4 } = {}) {
+  const body = { idempotency_key: randomUUID(), ...message };
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await api('POST', '/v1/emails', body);
+    } catch (err) {
+      const retryable = !(err instanceof EmailServiceError) || err.status &gt;= 500;
+      if (!retryable || attempt &gt;= attempts) throw err;
+      await new Promise((r) =&gt; setTimeout(r, 250 * 2 ** attempt));
+    }
+  }
+}</code></pre>
+        </div>
+        <div class="code" data-lang="node">
+          <div class="code-head"><span class="file">send.js</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>import { sendEmail } from './emailService.js';
+
+await sendEmail({
+  from: 'no-reply@billing.example.com',
+  to: ['ada@customer.com'],
+  subject: 'Your invoice #42',
+  text: 'Hi Ada, your invoice is ready.',
+  idempotency_key: 'invoice-42-sent',
+});</code></pre>
+        </div>
+        <div class="code" data-lang="python">
+          <div class="code-head"><span class="file">email_service.py</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>import time
+import uuid
+
+
+def send_email(message, attempts=4):
+    body = {"idempotency_key": str(uuid.uuid4()), **message}
+    for attempt in range(1, attempts + 1):
+        try:
+            return api("POST", "/v1/emails", body)
+        except EmailServiceError as err:
+            if err.status &lt; 500 or attempt == attempts:
+                raise
+        except requests.RequestException:
+            if attempt == attempts:
+                raise
+        time.sleep(0.25 * 2 ** attempt)</code></pre>
+        </div>
+        <div class="code" data-lang="python">
+          <div class="code-head"><span class="file">send.py</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>from email_service import send_email
+
+send_email({
+    "from": "no-reply@billing.example.com",
+    "to": ["ada@customer.com"],
+    "subject": "Your invoice #42",
+    "text": "Hi Ada, your invoice is ready.",
+    "idempotency_key": "invoice-42-sent",
+})</code></pre>
+        </div>
+        <div class="code" data-lang="go">
+          <div class="code-head"><span class="file">emailservice/retry.go</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>package emailservice
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"time"
+)
+
+// SendWithRetry retries network errors and 5xx responses. It reuses one
+// idempotency key across attempts, so the email is sent at most once.
+func (c *Client) SendWithRetry(ctx context.Context, msg SendRequest, attempts int) (*Email, error) {
+	if msg.IdempotencyKey == "" {
+		b := make([]byte, 16)
+		if _, err := rand.Read(b); err != nil {
+			return nil, err
+		}
+		msg.IdempotencyKey = hex.EncodeToString(b)
+	}
+	var lastErr error
+	for attempt := 1; attempt &lt;= attempts; attempt++ {
+		email, err := c.Send(ctx, msg)
+		if err == nil {
+			return email, nil
+		}
+		var apiErr *APIError
+		if errors.As(err, &amp;apiErr) &amp;&amp; apiErr.Status &lt; 500 {
+			return nil, err // a 4xx won't succeed on retry
+		}
+		lastErr = err
+		if attempt &lt; attempts {
+			select {
+			case &lt;-time.After(250 * time.Millisecond &lt;&lt; attempt):
+			case &lt;-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+	}
+	return nil, lastErr
+}</code></pre>
+        </div>
+      </section>
+
+      <section id="templates">
+        <h2>Templates</h2>
+        <p>You can store a template once and then send it by name with different data each time. Templates use <a href="https://handlebarsjs.com/guide/" rel="noopener">Handlebars</a>. In the HTML body, <code>{{name}}</code> is HTML-escaped. Use <code>{{{name}}}</code> only for HTML you trust. Templates belong to your project, and <code>PUT</code> creates a template or replaces the existing one.</p>
+        <div class="code" data-lang="node">
+          <div class="code-head"><span class="file">templates.js</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>import { api, sendEmail } from './emailService.js';
+
+// Create or update (run once, e.g. from a deploy script)
+await api('PUT', '/v1/templates/invoice', {
+  subject: 'Your invoice #{{number}}',
+  html: '&lt;p&gt;Hi {{name}}, invoice {{number}} for {{amount}} is ready.&lt;/p&gt;',
+  text: 'Hi {{name}}, invoice {{number}} for {{amount}} is ready.',
+});
+
+// Preview without sending
+const preview = await api('POST', '/v1/templates/invoice/render', {
+  data: { name: 'Ada', number: 42, amount: '€120' },
+});
+console.log(preview.subject); // "Your invoice #42"
+
+// Send it
+await sendEmail({
+  from: 'no-reply@billing.example.com',
+  to: ['ada@customer.com'],
+  template: 'invoice',
+  template_data: { name: 'Ada', number: 42, amount: '€120' },
+  idempotency_key: 'invoice-42-sent',
+});</code></pre>
+        </div>
+        <div class="code" data-lang="python">
+          <div class="code-head"><span class="file">templates.py</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>from email_service import api, send_email
+
+# Create or update (run once, e.g. from a deploy script)
+api("PUT", "/v1/templates/invoice", {
+    "subject": "Your invoice #{{number}}",
+    "html": "&lt;p&gt;Hi {{name}}, invoice {{number}} for {{amount}} is ready.&lt;/p&gt;",
+    "text": "Hi {{name}}, invoice {{number}} for {{amount}} is ready.",
+})
+
+# Preview without sending
+preview = api("POST", "/v1/templates/invoice/render", {
+    "data": {"name": "Ada", "number": 42, "amount": "€120"},
+})
+print(preview["subject"])  # "Your invoice #42"
+
+# Send it
+send_email({
+    "from": "no-reply@billing.example.com",
+    "to": ["ada@customer.com"],
+    "template": "invoice",
+    "template_data": {"name": "Ada", "number": 42, "amount": "€120"},
+    "idempotency_key": "invoice-42-sent",
+})</code></pre>
+        </div>
+        <div class="code" data-lang="go">
+          <div class="code-head"><span class="file">main.go</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>ctx := context.Background()
+
+// Create or update (run once, e.g. from a deploy script)
+err := client.Do(ctx, "PUT", "/v1/templates/invoice", map[string]string{
+	"subject": "Your invoice #{{number}}",
+	"html":    "&lt;p&gt;Hi {{name}}, invoice {{number}} for {{amount}} is ready.&lt;/p&gt;",
+	"text":    "Hi {{name}}, invoice {{number}} for {{amount}} is ready.",
+}, nil)
+if err != nil {
+	log.Fatal(err)
+}
+
+data := map[string]any{"name": "Ada", "number": 42, "amount": "€120"}
+
+// Preview without sending
+var preview struct{ Subject, HTML, Text string }
+err = client.Do(ctx, "POST", "/v1/templates/invoice/render", map[string]any{"data": data}, &amp;preview)
+if err != nil {
+	log.Fatal(err)
+}
+fmt.Println(preview.Subject) // "Your invoice #42"
+
+// Send it
+_, err = client.SendWithRetry(ctx, emailservice.SendRequest{
+	From:           "no-reply@billing.example.com",
+	To:             []string{"ada@customer.com"},
+	Template:       "invoice",
+	TemplateData:   data,
+	IdempotencyKey: "invoice-42-sent",
+}, 4)
+if err != nil {
+	log.Fatal(err)
+}</code></pre>
+        </div>
+        <p>The template is rendered at the moment you send. Editing it later doesn't change emails that are already queued. If the template doesn't exist, the send fails with <code>404 not_found</code>. A template with a syntax error is refused when you save it, with <code>400 template_syntax</code>. You can also call <code>GET /v1/templates</code> to list your templates, and <code>GET</code> or <code>DELETE /v1/templates/:name</code> to read or remove one.</p>
+      </section>
+
+      <section id="status">
+        <h2>Track delivery</h2>
+        <p>Each email moves through these statuses:</p>
+        <div class="status-flow">queued → sending → sent → delivered | bounced | complained
+                 ↘ failed        SES rejected it, or every retry failed
+suppressed                       every "to" address was suppressed; nothing sent</div>
+        <p style="margin-top:12px"><code>sent</code> means SES accepted the email. <code>delivered</code>, <code>bounced</code> and <code>complained</code> come later, when the recipient's mail server reports back. That can take seconds or, for a soft bounce, much longer. Your project doesn't get a callback when the status changes. To find out, fetch the email by its <code>id</code>:</p>
+        <div class="code" data-lang="node">
+          <div class="code-head"><span class="file">status.js</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>const email = await api('GET', `/v1/emails/${id}`);
+console.log(email.status, email.attempts, email.last_error);
+
+// Raw SES events: Delivery, Bounce, Complaint, …
+const { data: events } = await api('GET', `/v1/emails/${id}/events`);
+for (const e of events) console.log(e.created_at, e.event_type);</code></pre>
+        </div>
+        <div class="code" data-lang="python">
+          <div class="code-head"><span class="file">status.py</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>email = api("GET", f"/v1/emails/{email_id}")
+print(email["status"], email["attempts"], email["last_error"])
+
+# Raw SES events: Delivery, Bounce, Complaint, …
+for e in api("GET", f"/v1/emails/{email_id}/events")["data"]:
+    print(e["created_at"], e["event_type"])</code></pre>
+        </div>
+        <div class="code" data-lang="go">
+          <div class="code-head"><span class="file">main.go</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>email, err := client.GetEmail(ctx, id)
+if err != nil {
+	log.Fatal(err)
+}
+fmt.Println(email.Status, email.Attempts, email.LastError)
+
+// Raw SES events: Delivery, Bounce, Complaint, …
+var events struct {
+	Data []struct {
+		EventType string          `json:"event_type"`
+		Payload   json.RawMessage `json:"payload"`
+		CreatedAt time.Time       `json:"created_at"`
+	} `json:"data"`
+}
+if err := client.Do(ctx, "GET", "/v1/emails/"+id+"/events", nil, &amp;events); err != nil {
+	log.Fatal(err)
+}
+for _, e := range events.Data {
+	fmt.Println(e.CreatedAt, e.EventType)
+}</code></pre>
+        </div>
+        <p>The single-email response also includes the rendered <code>html</code>, <code>text</code>, <code>headers</code> and <code>template_data</code>, so you can see exactly what was sent.</p>
+      </section>
+
+      <section id="list">
+        <h2>List your emails</h2>
+        <p><code>GET /v1/emails</code> returns your project's emails, newest first, without their bodies. You can filter by <code>status</code> and <code>to</code>, and set <code>limit</code> from 1 to 200 (default 50). To get the next page, pass the response's <code>next_before</code> back as <code>before</code>. When there are no more pages, <code>next_before</code> is <code>null</code>.</p>
+        <div class="code" data-lang="node">
+          <div class="code-head"><span class="file">list.js</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>// Every bounced email, page by page
+let before = null;
+do {
+  const params = new URLSearchParams({ status: 'bounced', limit: '100' });
+  if (before) params.set('before', before);
+  const page = await api('GET', `/v1/emails?${params}`);
+  for (const m of page.data) console.log(m.created_at, m.to.join(', '), m.subject);
+  before = page.next_before;
+} while (before);</code></pre>
+        </div>
+        <div class="code" data-lang="python">
+          <div class="code-head"><span class="file">list.py</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code># Every bounced email, page by page
+params = {"status": "bounced", "limit": 100}
+while True:
+    page = api("GET", "/v1/emails", params=params)
+    for m in page["data"]:
+        print(m["created_at"], ", ".join(m["to"]), m["subject"])
+    if not page["next_before"]:
+        break
+    params["before"] = page["next_before"]</code></pre>
+        </div>
+        <div class="code" data-lang="go">
+          <div class="code-head"><span class="file">main.go</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>// Every bounced email, page by page
+params := url.Values{"status": {"bounced"}, "limit": {"100"}}
+for {
+	var page struct {
+		Data       []emailservice.Email `json:"data"`
+		NextBefore *string              `json:"next_before"`
+	}
+	if err := client.Do(ctx, "GET", "/v1/emails?"+params.Encode(), nil, &amp;page); err != nil {
+		log.Fatal(err)
+	}
+	for _, m := range page.Data {
+		fmt.Println(m.CreatedAt, strings.Join(m.To, ", "), m.Subject)
+	}
+	if page.NextBefore == nil {
+		break
+	}
+	params.Set("before", *page.NextBefore)
+}</code></pre>
+        </div>
+      </section>
+
+      <section id="suppressions">
+        <h2>Suppressions</h2>
+        <p>You don't need to call these endpoints to send safely, because suppressed addresses are skipped automatically. They are useful when you want to check an address before sign-up, or to stop mail to someone who asked you to.</p>
+        <ul>
+          <li><code>GET /v1/suppressions/:email</code> returns <code>{"email": "…", "suppressed": true|false}</code>.</li>
+          <li><code>POST /v1/suppressions</code> with <code>{"email": "…", "note": "…"}</code> adds a manual suppression and returns <code>201</code>. The list is shared, so this stops mail to that address from every project.</li>
+          <li><code>DELETE /v1/suppressions/:email</code> returns <code>204</code>. You can only remove manual suppressions that your project added. For bounces, complaints and other projects' entries you get <code>403 suppression_not_removable</code>. Ask an admin to remove those.</li>
+        </ul>
+        <p>The address goes in the URL path, so URL-encode it. Characters that email addresses may contain, such as <code>/</code>, <code>#</code>, <code>?</code> and <code>%</code>, would otherwise break the URL.</p>
+        <div class="code" data-lang="node">
+          <div class="code-head"><span class="file">suppressions.js</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>const path = `/v1/suppressions/${encodeURIComponent(address)}`;
+
+const { suppressed } = await api('GET', path);
+
+await api('POST', '/v1/suppressions', { email: address, note: 'Unsubscribed in settings' });
+
+await api('DELETE', path);</code></pre>
+        </div>
+        <div class="code" data-lang="python">
+          <div class="code-head"><span class="file">suppressions.py</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>from urllib.parse import quote
+
+path = f"/v1/suppressions/{quote(address, safe='')}"
+
+suppressed = api("GET", path)["suppressed"]
+
+api("POST", "/v1/suppressions", {"email": address, "note": "Unsubscribed in settings"})
+
+api("DELETE", path)</code></pre>
+        </div>
+        <div class="code" data-lang="go">
+          <div class="code-head"><span class="file">main.go</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>path := "/v1/suppressions/" + url.PathEscape(address)
+
+var check struct {
+	Suppressed bool `json:"suppressed"`
+}
+if err := client.Do(ctx, "GET", path, nil, &amp;check); err != nil {
+	log.Fatal(err)
+}
+
+body := map[string]string{"email": address, "note": "Unsubscribed in settings"}
+if err := client.Do(ctx, "POST", "/v1/suppressions", body, nil); err != nil {
+	log.Fatal(err)
+}
+
+if err := client.Do(ctx, "DELETE", path, nil, nil); err != nil {
+	log.Fatal(err) // 403 suppression_not_removable if your project didn't add it
+}</code></pre>
+        </div>
+      </section>
+
+      <section id="errors">
+        <h2>Errors</h2>
+        <p>Every error response has the same shape. Branch on <code>code</code>, not on <code>message</code>, because messages may change.</p>
+        <div class="code" data-lang="shell">
+          <div class="code-head"><span class="file">403 response</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>{
+  "error": {
+    "code": "sender_domain_not_allowed",
+    "message": "Project \"billing\" may not send from \"gmail.com\". Allowed domains: billing.example.com"
+  }
+}</code></pre>
+        </div>
+        <div class="code" data-lang="node">
+          <div class="code-head"><span class="file">errors.js</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>try {
+  await sendEmail(message);
+} catch (err) {
+  if (err instanceof EmailServiceError &amp;&amp; err.code === 'invalid_recipient') {
+    console.warn('Bad addresses:', err.details.addresses);
+  } else {
+    throw err;
+  }
+}</code></pre>
+        </div>
+        <div class="code" data-lang="python">
+          <div class="code-head"><span class="file">errors.py</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>try:
+    send_email(message)
+except EmailServiceError as err:
+    if err.code == "invalid_recipient":
+        print("Bad addresses:", err.details["addresses"])
+    else:
+        raise</code></pre>
+        </div>
+        <div class="code" data-lang="go">
+          <div class="code-head"><span class="file">main.go</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>_, err = client.SendWithRetry(ctx, msg, 4)
+var apiErr *emailservice.APIError
+if errors.As(err, &amp;apiErr) &amp;&amp; apiErr.Code == "invalid_recipient" {
+	log.Printf("bad addresses: %s", apiErr.Details)
+} else if err != nil {
+	log.Fatal(err)
+}</code></pre>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Status</th><th>Code</th><th>Meaning</th></tr></thead>
+            <tbody>
+              <tr><td>400</td><td><code>validation_error</code></td><td>The body doesn't match the schema: a wrong type, a missing field or a value that is too long. <code>details</code> lists each problem.</td></tr>
+              <tr><td>400</td><td><code>invalid_from</code></td><td><code>from</code> isn't a valid address.</td></tr>
+              <tr><td>400</td><td><code>invalid_recipient</code></td><td>One or more of <code>to</code>, <code>cc</code>, <code>bcc</code> or <code>reply_to</code> isn't a valid address. <code>details.addresses</code> lists them.</td></tr>
+              <tr><td>400</td><td><code>missing_recipient</code></td><td>No usable <code>to</code> address.</td></tr>
+              <tr><td>400</td><td><code>too_many_recipients</code></td><td>More than 50 addresses across <code>to</code>, <code>cc</code> and <code>bcc</code>.</td></tr>
+              <tr><td>400</td><td><code>missing_subject</code>, <code>missing_body</code></td><td>No subject, or no <code>html</code> and no <code>text</code>, and no template.</td></tr>
+              <tr><td>400</td><td><code>reserved_header</code>, <code>invalid_header</code></td><td>A header you can't set, or a malformed header name or value.</td></tr>
+              <tr><td>400</td><td><code>empty_template</code>, <code>template_syntax</code></td><td>The template renders to nothing, or doesn't compile when you save it.</td></tr>
+              <tr><td>401</td><td><code>unauthorized</code></td><td>The API key is missing, malformed or revoked.</td></tr>
+              <tr><td>403</td><td><code>sender_domain_not_allowed</code></td><td>The <code>from</code> domain isn't one of your project's domains.</td></tr>
+              <tr><td>403</td><td><code>suppression_not_removable</code></td><td>You tried to remove a suppression your project didn't add.</td></tr>
+              <tr><td>404</td><td><code>not_found</code></td><td>The email, template or suppression doesn't exist, or belongs to another project.</td></tr>
+              <tr><td>5xx</td><td><code>internal_error</code></td><td>A problem on the service's side. Retry with the same <code>idempotency_key</code>.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="reference">
+        <h2>API reference</h2>
+        <p>Every endpoint needs <code>Authorization: Bearer es_live_…</code>. Request and response bodies are JSON.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Method</th><th>Path</th><th>Purpose</th></tr></thead>
+            <tbody>
+              <tr><td><code>POST</code></td><td><code>/v1/emails</code></td><td>Queue an email. Returns <code>202</code>, or <code>200</code> on an idempotent replay.</td></tr>
+              <tr><td><code>GET</code></td><td><code>/v1/emails</code></td><td>List emails. Query: <code>limit</code>, <code>before</code>, <code>status</code>, <code>to</code>.</td></tr>
+              <tr><td><code>GET</code></td><td><code>/v1/emails/:id</code></td><td>One email, with its body, attempts and last error.</td></tr>
+              <tr><td><code>GET</code></td><td><code>/v1/emails/:id/events</code></td><td>The SES events for the email.</td></tr>
+              <tr><td><code>GET</code></td><td><code>/v1/templates</code></td><td>List templates.</td></tr>
+              <tr><td><code>GET</code> <code>PUT</code> <code>DELETE</code></td><td><code>/v1/templates/:name</code></td><td>Read, create or replace, or delete a template.</td></tr>
+              <tr><td><code>POST</code></td><td><code>/v1/templates/:name/render</code></td><td>Preview a template with <code>{"data": {…}}</code>.</td></tr>
+              <tr><td><code>GET</code></td><td><code>/v1/suppressions/:email</code></td><td>Check whether an address is suppressed.</td></tr>
+              <tr><td><code>POST</code></td><td><code>/v1/suppressions</code></td><td>Add a manual suppression.</td></tr>
+              <tr><td><code>DELETE</code></td><td><code>/v1/suppressions/:email</code></td><td>Remove a manual suppression that your project added.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="sub">Testing before you go live? In a local or staging deployment with <code>SES_DRY_RUN=true</code>, emails go through the whole pipeline and reach <code>sent</code>, but are only logged, never delivered.</p>
+      </section>
+    </article>
+  </div>
+</main>
+<script>
+(() => {
+  'use strict';
+  const LANGS = {
+    node: 'Node.js 18 or later. No dependencies.',
+    python: 'Python 3.8 or later, with requests.',
+    go: 'Go 1.21 or later. Standard library only.',
+  };
+
+  // Fill in this deployment's URL. textContent only: never parse it as HTML.
+  for (const el of document.querySelectorAll('.origin')) el.textContent = location.origin;
+
+  function setLang(lang, persist) {
+    if (!LANGS[lang]) return;
+    document.body.dataset.lang = lang;
+    for (const b of document.querySelectorAll('.tabs button')) b.setAttribute('aria-selected', String(b.dataset.lang === lang));
+    for (const p of document.querySelectorAll('[data-lang-note]')) p.hidden = p.dataset.langNote !== lang;
+    document.getElementById('lang-req').textContent = LANGS[lang];
+    if (persist) { try { localStorage.setItem('docs-lang', lang); } catch { /* storage blocked */ } }
+  }
+  let saved = null;
+  try { saved = localStorage.getItem('docs-lang'); } catch { /* storage blocked */ }
+  const fromQuery = new URLSearchParams(location.search).get('lang');
+  setLang(fromQuery || saved || 'node', false);
+
+  document.querySelector('.tabs').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-lang]');
+    if (!b) return;
+    // Keep the clicked tab where it is on screen when blocks above change height.
+    const top = b.getBoundingClientRect().top;
+    setLang(b.dataset.lang, true);
+    window.scrollBy(0, b.getBoundingClientRect().top - top);
+  });
+
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('button.copy');
+    if (!btn) return;
+    const code = btn.closest('.code').querySelector('pre').innerText;
+    try {
+      await navigator.clipboard.writeText(code);
+      btn.textContent = 'Copied'; btn.classList.add('done');
+    } catch {
+      btn.textContent = 'Press Ctrl+C';
+      const range = document.createRange(); range.selectNodeContents(btn.closest('.code').querySelector('pre'));
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+    }
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('done'); }, 1500);
+  });
+
+  // Highlight the section in view.
+  const links = new Map([...document.querySelectorAll('#toc a')].map((a) => [a.getAttribute('href').slice(1), a]));
+  const io = new IntersectionObserver((entries) => {
+    for (const en of entries) {
+      if (!en.isIntersecting) continue;
+      for (const a of links.values()) a.classList.remove('active');
+      links.get(en.target.id)?.classList.add('active');
+    }
+  }, { rootMargin: '-20% 0px -70% 0px' });
+  for (const id of links.keys()) { const s = document.getElementById(id); if (s) io.observe(s); }
+})();
+</script>
+</body>
+</html>

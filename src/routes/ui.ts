@@ -11,9 +11,10 @@ const CSP =
   "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'";
 
 /**
- * Serves the admin web UI: login page, management SPA and the performance
- * dashboard. All three are static HTML; every byte of data they show comes from
- * the /admin/* API, which requires the session cookie set by /admin/auth/login.
+ * Serves the web pages: the public developer guide at / (and /docs), and the
+ * admin UI (login page, management SPA, performance dashboard). All are static
+ * HTML; every byte of admin data comes from the /admin/* API, which requires
+ * the session cookie set by /admin/auth/login.
  */
 export const uiRoutes: FastifyPluginAsync = async (app) => {
   const cache = new Map<string, string>();
@@ -36,5 +37,7 @@ export const uiRoutes: FastifyPluginAsync = async (app) => {
   app.get('/admin/login', serve('login.html'));
   app.get('/admin/ui', serve('admin.html'));
   app.get('/dashboard', serve('dashboard.html'));
-  app.get('/', async (_req, reply) => reply.redirect('/admin/ui'));
+  // Public developer guide for projects integrating with the API.
+  app.get('/', serve('docs.html'));
+  app.get('/docs', serve('docs.html'));
 };

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MessageRejected, SESv2ServiceException } from '@aws-sdk/client-sesv2';
-import { classifySendError, SendError } from '../src/services/ses.js';
+import { classifySendError, relativeHost, SendError } from '../src/services/ses.js';
 
 const meta = (httpStatusCode: number) => ({ $metadata: { httpStatusCode } });
 
@@ -23,5 +23,15 @@ describe('classifySendError', () => {
     const own = new SendError('x', false, 'custom');
     expect(classifySendError(own)).toBe(own);
     expect(classifySendError(new Error('socket hang up')).retryable).toBe(true);
+  });
+});
+
+describe('relativeHost', () => {
+  it('strips the domain the way registrar Host fields expect', () => {
+    expect(relativeHost('abc._domainkey.example.com', 'example.com')).toBe('abc._domainkey');
+    expect(relativeHost('bounce.example.com.', 'Example.com')).toBe('bounce');
+    expect(relativeHost('_dmarc.mail.example.com', 'mail.example.com')).toBe('_dmarc');
+    expect(relativeHost('example.com', 'example.com')).toBe('@');
+    expect(relativeHost('other.org', 'example.com')).toBe('other.org');
   });
 });

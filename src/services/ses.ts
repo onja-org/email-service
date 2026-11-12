@@ -47,9 +47,25 @@ export class SendError extends Error {
 
 export interface DnsRecord {
   type: 'CNAME' | 'MX' | 'TXT';
+  /** Fully qualified record name, e.g. "abc._domainkey.example.com". */
   name: string;
+  /**
+   * The name relative to the domain, e.g. "abc._domainkey" or "@" for the root:
+   * what registrar panels (Namecheap, GoDaddy, Cloudflare…) expect in their
+   * "Host" field, since they append the domain themselves. Entering the full
+   * name there silently creates "abc._domainkey.example.com.example.com".
+   */
+  host: string;
   value: string;
   purpose: string;
+}
+
+/** "abc._domainkey.example.com" within "example.com" → "abc._domainkey"; the root → "@". */
+export function relativeHost(name: string, domain: string): string {
+  const n = name.toLowerCase().replace(/\.$/, '');
+  const d = domain.toLowerCase();
+  if (n === d) return '@';
+  return n.endsWith(`.${d}`) ? n.slice(0, -(d.length + 1)) : name;
 }
 
 export interface DomainIdentity {
@@ -172,34 +188,25 @@ export function createSesService(cfg: Config, log: { info: (o: unknown, m?: stri
     const out = await client.send(new GetEmailIdentityCommand({ EmailIdentity: domain }));
     const dkimTokens = out.DkimAttributes?.Tokens ?? [];
     const mailFrom = out.MailFromAttributes;
-    const dnsRecords: DnsRecord[] = dkimTokens.map((t) => ({
-      type: 'CNAME',
-      name: `${t}._domainkey.${domain}`,
-      value: `${t}.dkim.amazonses.com`,
-      purpose: 'DKIM signing',
-    }));
+    const rec = (type: DnsRecord['type'], name: string, value: string, purpose: string): DnsRecord => ({
+      type,
+      name,
+      host: relativeHost(name, domain),
+      value,
+      purpose,
+    });
+    const dnsRecords: DnsRecord[] = dkimTokens.map((t) =>
+      rec('CNAME', `${t}._domainkey.${domain}`, `${t}.dkim.amazonses.com`, 'DKIM signing (required for verification)'),
+    );
     if (mailFrom?.MailFromDomain) {
       dnsRecords.push(
-        {
-          type: 'MX',
-          name: mailFrom.MailFromDomain,
-          value: `10 feedback-smtp.${cfg.AWS_REGION}.amazonses.com`,
-          purpose: 'Custom MAIL FROM (bounce handling)',
-        },
-        {
-          type: 'TXT',
-          name: mailFrom.MailFromDomain,
-          value: 'v=spf1 include:amazonses.com ~all',
-          purpose: 'SPF for MAIL FROM domain',
-        },
+        rec('MX', mailFrom.MailFromDomain, `10 feedback-smtp.${cfg.AWS_REGION}.amazonses.com`, 'Custom MAIL FROM (bounce handling)'),
+        rec('TXT', mailFrom.MailFromDomain, 'v=spf1 include:amazonses.com ~all', 'SPF for MAIL FROM domain'),
       );
     }
-    dnsRecords.push({
-      type: 'TXT',
-      name: `_dmarc.${domain}`,
-      value: 'v=DMARC1; p=none;',
-      purpose: 'DMARC policy (start with p=none, tighten once sending is verified)',
-    });
+    dnsRecords.push(
+      rec('TXT', `_dmarc.${domain}`, 'v=DMARC1; p=none;', 'DMARC policy: skip if one already exists (a domain must have exactly one)'),
+    );
     return {
       domain,
       verified: out.VerifiedForSendingStatus === true,
