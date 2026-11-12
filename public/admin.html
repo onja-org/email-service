@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Email admin</title>
+<link rel="stylesheet" href="/ui.css">
+</head>
+<body>
+<main>
+  <div class="topbar">
+    <h1>Email service</h1>
+    <nav id="nav">
+      <a href="#/projects" data-route="projects">Projects</a>
+      <a href="#/suppressions" data-route="suppressions">Suppressions</a>
+      <a href="/dashboard">Dashboard</a>
+    </nav>
+    <span class="spacer"></span>
+    <span class="sub" id="who"></span>
+    <button class="small" id="signout">Sign out</button>
+  </div>
+  <div class="banner" id="banner" hidden></div>
+  <div id="view"></div>
+</main>
+<script>
+(() => {
+  'use strict';
+  const $ = (s, el = document) => el.querySelector(s);
+  const UI_HEADERS = { 'x-requested-with': 'emailsvc-ui' };
+
+  // ---- DOM helpers: textContent only, every string here comes from the API or the user ----
+  const el = (tag, attrs = {}, children = []) => {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (v == null || v === false) continue;
+      if (k === 'class') n.className = v;
+      else if (k === 'text') n.textContent = v;
+      else if (k === 'html') throw new Error('no innerHTML');
+      else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
+      else n.setAttribute(k, v === true ? '' : v);
+    }
+    for (const c of [].concat(children)) if (c != null) n.append(c);
+    return n;
+  };
+  const clear = (n) => { while (n.firstChild) n.removeChild(n.firstChild); return n; };
+  const fmt = (iso) => iso ? new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '–';
+  const ago = (iso) => { if (!iso) return 'never'; const s = (Date.now() - new Date(iso)) / 1000; return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`; };
+  const STATUS_CLASS = { sent: 'good', delivered: 'good', queued: '', sending: '', suppressed: 'warn', failed: 'bad', bounced: 'bad', complained: 'bad' };
+  const chip = (text, cls) => el('span', { class: `chip ${cls || ''}`, text });
+  const statusChip = (s) => chip(s, STATUS_CLASS[s] ?? '');
+
+  // ---- API ----
+  class ApiError extends Error { constructor(status, body) { super(body?.error?.message || `HTTP ${status}`); this.status = status; this.code = body?.error?.code; this.details = body?.error?.details; } }
+  async function api(method, path, body) {
+    const res = await fetch(path, {
+      method,
+      headers: { ...UI_HEADERS, ...(body ? { 'content-type': 'application/json' } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (res.status === 401) { location.replace(`/admin/login?reason=expired&next=${encodeURIComponent('/admin/ui' + location.hash)}`); throw new ApiError(401, null); }
+    if (res.status === 204) return null;
+    const json = await res.json().catch(() => null);
+    if (!res.ok) throw new ApiError(res.status, json);
+    return json;
+  }
+  const get = (p) => api('GET', p);
+
+  // ---- feedback ----
+  let bannerTimer;
+  function banner(msg, ok = false) {
+    const b = $('#banner'); clearTimeout(bannerTimer);
+    if (!msg) { b.hidden = true; return; }
+    b.textContent = msg; b.className = `banner${ok ? ' ok' : ''}`; b.hidden = false;
+    if (ok) bannerTimer = setTimeout(() => { b.hidden = true; }, 4000);
+  }
+  function describe(err) {
+    if (err instanceof ApiError && Array.isArray(err.details) && err.details.length) {
+      return `${err.message}: ${err.details.map((d) => `${(d.instancePath || d.path || '').toString().replace(/^\//, '')} ${d.message}`.trim()).join('; ')}`;
+    }
+    return err.message || String(err);
+  }
+  /** Runs an action from a form/button, disabling it meanwhile and reporting errors in the banner. */
+  async function act(btn, fn, okMsg) {
+    btn.disabled = true; banner(null);
+    try { await fn(); if (okMsg) banner(okMsg, true); } catch (err) { banner(describe(err)); } finally { btn.disabled = false; }
+  }
+  /** Two-step inline confirmation (no window.confirm). Returns a button that turns into "Confirm / Cancel". */
+  function confirmButton(label, onConfirm, cls = 'danger') {
+    const wrap = el('span', { class: 'actions' });
+    const main = el('button', { class: `small ${cls}`, text: label, onclick: () => {
+      clear(wrap);
+      wrap.append(
+        el('button', { class: `small ${cls}`, text: 'Confirm', onclick: (e) => act(e.target, onConfirm) }),
+        el('button', { class: 'small', text: 'Cancel', onclick: () => { clear(wrap); wrap.append(main); } }),
+      );
+    } });
+    wrap.append(main);
+    return wrap;
+  }
+  const copyButton = (text) => el('button', { class: 'small', text: 'Copy', onclick: async (e) => {
+    try { await navigator.clipboard.writeText(text); e.target.textContent = 'Copied'; setTimeout(() => { e.target.textContent = 'Copy'; }, 1500); } catch { banner('Clipboard unavailable; select the text and copy it manually.'); }
+  } });
+  function table(headers, rows, emptyText) {
+    if (!rows.length) return el('div', { class: 'empty', text: emptyText });
+    return el('div', { class: 'table-wrap' }, el('table', {}, [
+      el('thead', {}, el('tr', {}, headers.map((h) => el('th', { class: h.num ? 'num' : '', text: h.text ?? h })))),
+      el('tbody', {}, rows),
+    ]));
+  }
+  const card = (title, sub, body) => el('section', { class: 'card' }, [
+    el('div', { class: 'card-head' }, [el('h2', { text: title }), sub ? el('span', { class: 'sub' }, sub) : null]),
+    ...[].concat(body),
+  ]);
+
+  // ---- views ----
+  const view = $('#view');
+  const render = (...nodes) => { clear(view); view.append(...nodes); };
+
+  async function projectsView() {
+    render(el('div', { class: 'card loading', text: 'Loading…' }));
+    const { data } = await get('/admin/projects');
+    const form = el('form', { class: 'row', onsubmit: (e) => {
+      e.preventDefault();
+      const slug = $('#new-slug', form).value.trim(), name = $('#new-name', form).value.trim();
+      act($('button', form), async () => {
+        await api('POST', '/admin/projects', { slug, name });
+        location.hash = `#/projects/${encodeURIComponent(slug)}`;
+      }, null);
+    } }, [
+      el('label', { class: 'field' }, ['Slug', el('input', { type: 'text', id: 'new-slug', required: true, pattern: '[a-z0-9][a-z0-9-]{1,40}', placeholder: 'billing', title: 'lowercase letters, digits and dashes' })]),
+      el('label', { class: 'field' }, ['Name', el('input', { type: 'text', id: 'new-name', required: true, placeholder: 'Billing app' })]),
+      el('label', { class: 'field' }, [' ', el('button', { class: 'primary', type: 'submit', text: 'Create project' })]),
+    ]);
+    const rows = data.map((p) => el('tr', { class: 'clickable', onclick: () => { location.hash = `#/projects/${encodeURIComponent(p.slug)}`; } }, [
+      el('td', {}, el('a', { href: `#/projects/${encodeURIComponent(p.slug)}`, text: p.slug })),
+      el('td', { text: p.name }),
+      el('td', {}, p.domains.length ? p.domains.map((d) => chip(d)) : el('span', { class: 'muted', text: 'no domains yet' })),
+      el('td', { text: fmt(p.created_at) }),
+    ]));
+    render(
+      card('New project', 'Creates the project and its SES configuration set. Attach a domain next.', form),
+      card('Projects', `${data.length} total`, table(['Slug', 'Name', 'Domains', 'Created'], rows, 'No projects yet. Create one above.')),
+    );
+  }
+
+  async function projectView(slug) {
+    render(el('div', { class: 'card loading', text: 'Loading…' }));
+    const p = await get(`/admin/projects/${encodeURIComponent(slug)}`);
+    const reload = () => projectView(slug);
+
+    // -- domains
+    const domainRows = await Promise.all(p.domains.map(async (d) => {
+      let identity = null, err = null;
+      try { identity = await get(`/admin/projects/${encodeURIComponent(slug)}/domains/${encodeURIComponent(d)}`); } catch (e) { err = e; }
+      return { domain: d, identity, err };
+    }));
+    const domainsBody = domainRows.length ? domainRows.map(({ domain, identity, err }) => {
+      const status = err ? chip(`SES error: ${err.message}`, 'bad')
+        : identity.verified ? chip('verified', 'good') : chip(`pending (DKIM ${identity.dkimStatus})`, 'warn');
+      const dns = identity?.dnsRecords?.length
+        ? el('details', { open: !identity.verified }, [
+            el('summary', { text: `DNS records (${identity.dnsRecords.length})` }),
+            table(['Type', 'Name', 'Value', 'Purpose', ''], identity.dnsRecords.map((r) => el('tr', {}, [
+              el('td', { text: r.type }), el('td', { class: 'wrap' }, el('code', { text: r.name })), el('td', { class: 'wrap' }, el('code', { text: r.value })),
+              el('td', { class: 'sub', text: r.purpose }), el('td', {}, copyButton(r.value)),
+            ])), ''),
+          ])
+        : null;
+      const mailFrom = identity?.mailFromStatus ? el('div', { class: 'sub' }, [`Custom MAIL FROM: ${identity.mailFromStatus}`]) : null;
+      return el('div', { class: 'notice' }, [
+        el('div', { class: 'actions' }, [
+          el('strong', { text: domain }), status,
+          el('button', { class: 'small', text: 'Re-check', onclick: reload }),
+          confirmButton('Detach', async () => { await api('DELETE', `/admin/projects/${encodeURIComponent(slug)}/domains/${encodeURIComponent(domain)}`); reload(); }),
+          confirmButton('Detach + delete SES identity', async () => { await api('DELETE', `/admin/projects/${encodeURIComponent(slug)}/domains/${encodeURIComponent(domain)}?delete_identity=true`); reload(); }),
+        ]),
+        mailFrom, dns,
+      ]);
+    }) : [el('div', { class: 'empty', text: 'No domains. The project cannot send until one is attached and verified.' })];
+    const domainForm = el('form', { class: 'row', onsubmit: (e) => {
+      e.preventDefault();
+      const domain = $('input', domainForm).value.trim().toLowerCase();
+      act($('button', domainForm), async () => { await api('POST', `/admin/projects/${encodeURIComponent(slug)}/domains`, { domain }); reload(); }, `Attached ${domain}. Add the DNS records shown, then re-check.`);
+    } }, [
+      el('input', { type: 'text', placeholder: 'mail.example.com', required: true, pattern: '[A-Za-z0-9.-]+\\.[A-Za-z0-9-]+' }),
+      el('button', { class: 'primary', type: 'submit', text: 'Attach domain' }),
+    ]);
+
+    // -- keys
+    const keyRows = p.api_keys.map((k) => el('tr', {}, [
+      el('td', { text: k.name }), el('td', {}, el('code', { text: `${k.prefix}…` })),
+      el('td', { text: fmt(k.created_at) }), el('td', { text: ago(k.last_used_at) }),
+      el('td', {}, k.revoked_at ? chip(`revoked ${fmt(k.revoked_at)}`, 'bad') : chip('active', 'good')),
+      el('td', {}, k.revoked_at ? null : confirmButton('Revoke', async () => { await api('DELETE', `/admin/projects/${encodeURIComponent(slug)}/keys/${k.id}`); reload(); })),
+    ]));
+    const newKey = el('div');
+    const keyForm = el('form', { class: 'row', onsubmit: (e) => {
+      e.preventDefault();
+      const name = $('input', keyForm).value.trim();
+      act($('button', keyForm), async () => {
+        const k = await api('POST', `/admin/projects/${encodeURIComponent(slug)}/keys`, { name });
+        clear(newKey).append(el('div', { class: 'notice' }, [
+          el('div', {}, [el('strong', { text: `Key "${k.name}" created. ` }), 'Copy it now: it is shown once and never stored in plaintext.']),
+          el('div', { class: 'secret' }, [el('code', { text: k.key }), copyButton(k.key)]),
+        ]));
+        keyForm.reset();
+        // Refresh the table without discarding the one-time key box.
+        const fresh = await get(`/admin/projects/${encodeURIComponent(slug)}`);
+        p.api_keys = fresh.api_keys;
+        const tbl = table(['Name', 'Prefix', 'Created', 'Last used', 'Status', ''], fresh.api_keys.map((kk) => el('tr', {}, [
+          el('td', { text: kk.name }), el('td', {}, el('code', { text: `${kk.prefix}…` })), el('td', { text: fmt(kk.created_at) }), el('td', { text: ago(kk.last_used_at) }),
+          el('td', {}, kk.revoked_at ? chip('revoked', 'bad') : chip('active', 'good')),
+          el('td', {}, kk.revoked_at ? null : confirmButton('Revoke', async () => { await api('DELETE', `/admin/projects/${encodeURIComponent(slug)}/keys/${kk.id}`); reload(); })),
+        ])), '');
+        keyTable.replaceWith(tbl); keyTable = tbl;
+      });
+    } }, [
+      el('input', { type: 'text', placeholder: 'production', required: true, maxlength: 100 }),
+      el('button', { class: 'primary', type: 'submit', text: 'Issue key' }),
+    ]);
+    let keyTable = table(['Name', 'Prefix', 'Created', 'Last used', 'Status', ''], keyRows, 'No API keys yet.');
+
+    // -- templates (read-only; projects manage them with their key)
+    const { data: templates } = await get(`/admin/projects/${encodeURIComponent(slug)}/templates`);
+    const templateTable = table(['Name', 'Subject', 'Bodies', 'Updated'], templates.map((t) => el('tr', {}, [
+      el('td', {}, el('code', { text: t.name })), el('td', { class: 'wrap', text: t.subject }),
+      el('td', {}, [t.has_html ? chip('html') : null, ' ', t.has_text ? chip('text') : null]), el('td', { text: fmt(t.updated_at) }),
+    ])), 'No templates. Projects create them with PUT /v1/templates/:name using their API key.');
+
+    // -- emails
+    const emails = el('div');
+    const statusSel = el('select', {}, [el('option', { value: '', text: 'All statuses' }), ...Object.keys(STATUS_CLASS).map((s) => el('option', { value: s, text: s }))]);
+    const toInput = el('input', { type: 'search', placeholder: 'filter by recipient' });
+    const detail = el('div');
+    async function loadEmails() {
+      emails.classList.add('loading');
+      const q = new URLSearchParams({ limit: '50' });
+      if (statusSel.value) q.set('status', statusSel.value);
+      if (toInput.value.trim()) q.set('to', toInput.value.trim());
+      const { data } = await get(`/admin/projects/${encodeURIComponent(slug)}/emails?${q}`);
+      clear(emails).append(table(['Created', 'To', 'Subject', 'Status', 'Attempts', 'Error'], data.map((m) => el('tr', { class: 'clickable', onclick: () => showEmail(m.id) }, [
+        el('td', { text: fmt(m.created_at) }), el('td', { class: 'wrap', text: m.to.join(', ') || (m.suppressed_recipients.length ? '(all suppressed)' : '') }),
+        el('td', { class: 'wrap', text: m.subject }), el('td', {}, statusChip(m.status)), el('td', { class: 'num', text: String(m.attempts) }),
+        el('td', { class: 'sub wrap', text: m.last_error || '' }),
+      ])), 'No emails match.'));
+      emails.classList.remove('loading');
+    }
+    async function showEmail(id) {
+      clear(detail).append(el('div', { class: 'card loading', text: 'Loading…' }));
+      const m = await get(`/admin/emails/${id}`);
+      const kv = (pairs) => el('dl', { class: 'kv' }, pairs.flatMap(([k, v]) => v == null || v === '' ? [] : [el('dt', { text: k }), el('dd', {}, typeof v === 'string' ? v : v)]));
+      clear(detail).append(card(`Email ${m.id}`, el('button', { class: 'small', text: 'Close', onclick: () => clear(detail) }), [
+        kv([
+          ['Status', statusChip(m.status)], ['From', m.from], ['To', m.to.join(', ')], ['Cc', m.cc.join(', ')], ['Bcc', m.bcc.join(', ')],
+          ['Suppressed', m.suppressed_recipients.join(', ')], ['Reply-to', m.reply_to.join(', ')], ['Subject', m.subject],
+          ['Template', m.template], ['Tags', Object.entries(m.tags).map(([k, v]) => `${k}=${v}`).join(', ')],
+          ['Idempotency key', m.idempotency_key], ['Attempts', String(m.attempts)], ['Last error', m.last_error],
+          ['SES message id', m.ses_message_id], ['Created', fmt(m.created_at)], ['Sent', fmt(m.sent_at)],
+        ]),
+        m.text ? el('details', {}, [el('summary', { text: 'Text body' }), el('pre', { text: m.text })]) : null,
+        m.html ? el('details', {}, [el('summary', { text: 'HTML body (source)' }), el('pre', { text: m.html })]) : null,
+        el('h3', { text: `SES events (${m.events.length})` }),
+        table(['Time', 'Type', 'Payload'], m.events.map((ev) => el('tr', {}, [
+          el('td', { text: fmt(ev.created_at) }), el('td', {}, statusChip(ev.event_type.toLowerCase())),
+          el('td', {}, el('details', {}, [el('summary', { text: 'payload' }), el('pre', { text: JSON.stringify(ev.payload, null, 2) })])),
+        ])), 'No events yet. Delivery, bounce and complaint events arrive through the SNS webhook.'),
+      ]));
+      detail.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    statusSel.addEventListener('change', loadEmails);
+    let t; toInput.addEventListener('input', () => { clearTimeout(t); t = setTimeout(loadEmails, 300); });
+
+    render(
+      el('div', { class: 'crumbs' }, [el('a', { href: '#/projects', text: 'Projects' }), ` / ${p.slug}`]),
+      card(p.name, el('span', {}, [el('code', { text: p.slug }), ` · config set `, el('code', { text: p.config_set }), ` · created ${fmt(p.created_at)}`]), [
+        el('h3', { text: 'Domains' }), ...domainsBody, domainForm,
+        el('h3', { text: 'API keys' }), keyTable, newKey, keyForm,
+        el('h3', { text: 'Templates' }), templateTable,
+      ]),
+      card('Recent emails', el('span', { class: 'actions' }, [statusSel, toInput, el('button', { class: 'small', text: 'Refresh', onclick: loadEmails })]), emails),
+      detail,
+    );
+    await loadEmails();
+  }
+
+  async function suppressionsView() {
+    render(el('div', { class: 'card loading', text: 'Loading…' }));
+    const { data: projects } = await get('/admin/projects');
+    const projectName = new Map(projects.map((p) => [p.id, p.slug]));
+    const list = el('div');
+    async function load(before) {
+      const q = new URLSearchParams({ limit: '100' }); if (before) q.set('before', before);
+      const { data, next_before } = await get(`/admin/suppressions?${q}`);
+      const rows = data.map((s) => el('tr', {}, [
+        el('td', { class: 'wrap' }, el('code', { text: s.email })),
+        el('td', {}, chip(s.reason, s.reason === 'manual' ? '' : 'bad')),
+        el('td', { text: s.project_id ? (projectName.get(s.project_id) ?? s.project_id) : 'admin' }),
+        el('td', { class: 'sub wrap', text: s.note || '' }), el('td', { text: fmt(s.created_at) }),
+        el('td', {}, confirmButton('Remove', async () => { await api('DELETE', `/admin/suppressions/${encodeURIComponent(s.email)}`); load(); })),
+      ]));
+      clear(list).append(table(['Email', 'Reason', 'Added by', 'Note', 'When', ''], rows, 'The suppression list is empty.'));
+      if (next_before) list.append(el('div', { class: 'actions', style: 'margin-top:8px' }, el('button', { class: 'small', text: 'Older…', onclick: () => load(next_before) })));
+    }
+    const lookup = el('div');
+    const lookupForm = el('form', { class: 'row', onsubmit: (e) => {
+      e.preventDefault();
+      const email = $('input', lookupForm).value.trim();
+      act($('button', lookupForm), async () => {
+        try {
+          const s = await get(`/admin/suppressions/${encodeURIComponent(email)}`);
+          clear(lookup).append(el('div', { class: 'notice' }, [el('strong', { text: s.email }), ' is suppressed: ', chip(s.reason, s.reason === 'manual' ? '' : 'bad'), ` ${s.note || ''} (${fmt(s.created_at)})`]));
+        } catch (err) {
+          if (err.status === 404) clear(lookup).append(el('div', { class: 'notice' }, [el('strong', { text: email }), ' is not suppressed.'])); else throw err;
+        }
+      });
+    } }, [el('input', { type: 'email', placeholder: 'someone@example.com', required: true }), el('button', { type: 'submit', text: 'Check' })]);
+    const addForm = el('form', { class: 'row', onsubmit: (e) => {
+      e.preventDefault();
+      const [emailI, noteI] = addForm.querySelectorAll('input');
+      act($('button', addForm), async () => { await api('POST', '/admin/suppressions', { email: emailI.value.trim(), note: noteI.value.trim() || undefined }); addForm.reset(); load(); }, 'Suppressed.');
+    } }, [el('input', { type: 'email', placeholder: 'someone@example.com', required: true }), el('input', { type: 'text', placeholder: 'note (optional)', maxlength: 500 }), el('button', { class: 'primary', type: 'submit', text: 'Suppress' })]);
+    render(
+      card('Check an address', null, [lookupForm, lookup]),
+      card('Add a manual suppression', 'Admin entries belong to no project, so only an admin can remove them.', addForm),
+      card('Suppression list', 'Shared by every project. Removing a bounce or complaint entry lets all projects send to that address again.', list),
+    );
+    await load();
+  }
+
+  // ---- router ----
+  async function route() {
+    const h = location.hash || '#/projects';
+    const m = h.match(/^#\/projects\/([^/]+)$/);
+    const current = h.startsWith('#/suppressions') ? 'suppressions' : 'projects';
+    document.querySelectorAll('#nav a[data-route]').forEach((a) => a.setAttribute('aria-current', a.dataset.route === current ? 'page' : 'false'));
+    banner(null);
+    try {
+      if (m) await projectView(decodeURIComponent(m[1]));
+      else if (current === 'suppressions') await suppressionsView();
+      else await projectsView();
+    } catch (err) {
+      if (err.status !== 401) render(el('div', { class: 'card' }, [el('h2', { text: 'Could not load' }), el('p', { class: 'sub', text: describe(err) })]));
+    }
+  }
+  window.addEventListener('hashchange', route);
+  $('#signout').addEventListener('click', async () => {
+    await fetch('/admin/auth/logout', { method: 'POST', headers: UI_HEADERS }).catch(() => {});
+    location.replace('/admin/login');
+  });
+  get('/admin/auth/me').then((me) => { $('#who').textContent = me.username ? `Signed in as ${me.username}` : ''; }).catch(() => {});
+  route();
+})();
+</script>
+</body>
+</html>

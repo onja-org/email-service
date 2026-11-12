@@ -168,6 +168,62 @@ describe('auth', () => {
   });
 });
 
+describe('admin UI sessions', () => {
+  const ui = { 'x-requested-with': 'emailsvc-ui' };
+  const cookieOf = (res: { headers: Record<string, unknown> }) => String(res.headers['set-cookie']).split(';')[0];
+
+  it('serves the login, admin and dashboard pages without auth, with a CSP', async () => {
+    for (const url of ['/admin/login', '/admin/ui', '/dashboard']) {
+      const res = await app.inject({ method: 'GET', url });
+      expect(res.statusCode, url).toBe(200);
+      expect(res.headers['content-security-policy']).toContain("frame-ancestors 'none'");
+    }
+    expect((await app.inject({ method: 'GET', url: '/' })).headers.location).toBe('/admin/ui');
+  });
+
+  it('rejects a wrong token and locks out after repeated failures', async () => {
+    const bad = await app.inject({ method: 'POST', url: '/admin/auth/login', payload: { token: 'nope' } });
+    expect(bad.statusCode).toBe(401);
+    expect(bad.headers['set-cookie']).toBeUndefined();
+    for (let i = 0; i < 4; i++) await app.inject({ method: 'POST', url: '/admin/auth/login', payload: { token: 'nope' } });
+    const locked = await app.inject({ method: 'POST', url: '/admin/auth/login', payload: { token: cfg.ADMIN_TOKEN } });
+    expect(locked.statusCode).toBe(429);
+  });
+
+  it('logs in, authorises admin routes by cookie, requires the UI header for writes, and logs out', async () => {
+    // A different client IP than the locked-out one above.
+    const login = await app.inject({ method: 'POST', url: '/admin/auth/login', remoteAddress: '10.0.0.2', payload: { token: cfg.ADMIN_TOKEN } });
+    expect(login.statusCode).toBe(200);
+    expect(login.json()).toEqual({ username: 'admin' });
+    const cookie = cookieOf(login);
+    expect(cookie).toMatch(/^emailsvc_admin=.+\..+$/);
+    expect(String(login.headers['set-cookie'])).toContain('HttpOnly');
+
+    const me = await app.inject({ method: 'GET', url: '/admin/auth/me', headers: { cookie } });
+    expect(me.json()).toEqual({ username: 'admin', via: 'session' });
+    expect((await app.inject({ method: 'GET', url: '/admin/auth/me' })).statusCode).toBe(401);
+    expect((await app.inject({ method: 'GET', url: '/admin/auth/me', headers: { cookie: 'emailsvc_admin=forged.sig' } })).statusCode).toBe(401);
+
+    const read = await app.inject({ method: 'GET', url: '/admin/suppressions/blocked@example.com', headers: { cookie } });
+    expect(read.statusCode).toBe(200);
+    expect(read.json().reason).toBe('bounce');
+
+    // Cross-site forms cannot set custom headers, so a cookie alone must not allow writes.
+    const csrf = await app.inject({ method: 'POST', url: '/admin/suppressions', headers: { cookie }, payload: { email: 'x@example.com' } });
+    expect(csrf.statusCode).toBe(403);
+    expect(csrf.json().error.code).toBe('csrf_header_missing');
+    const bodyErr = await app.inject({ method: 'POST', url: '/admin/suppressions', headers: { cookie, ...ui }, payload: { email: 'not-an-email' } });
+    expect(bodyErr.statusCode).toBe(400);
+
+    const token = await app.inject({ method: 'GET', url: '/admin/auth/me', headers: { authorization: `Bearer ${cfg.ADMIN_TOKEN}` } });
+    expect(token.json()).toEqual({ username: 'token', via: 'token' });
+
+    const logout = await app.inject({ method: 'POST', url: '/admin/auth/logout', headers: { cookie, ...ui } });
+    expect(logout.statusCode).toBe(204);
+    expect(String(logout.headers['set-cookie'])).toContain('Max-Age=0');
+  });
+});
+
 describe('POST /v1/emails', () => {
   it('queues a valid email and enqueues a job', async () => {
     const res = await app.inject({ method: 'POST', url: '/v1/emails', headers: auth, payload: validBody });

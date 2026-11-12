@@ -14,7 +14,9 @@ import { suppressionRoutes } from './routes/suppressions.js';
 import { adminRoutes } from './routes/admin.js';
 import { webhookRoutes } from './routes/webhooks.js';
 import { statsRoutes } from './routes/stats.js';
-import { dashboardRoutes } from './routes/dashboard.js';
+import { uiRoutes } from './routes/ui.js';
+import { adminAuthRoutes } from './routes/admin-auth.js';
+import { createHash } from 'node:crypto';
 
 export interface AppDeps {
   cfg: Config;
@@ -30,6 +32,8 @@ declare module 'fastify' {
     db: Db;
     queue: Queue;
     ses: SesService;
+    /** HMAC key for admin UI session cookies. */
+    sessionSecret: string;
   }
 }
 
@@ -50,6 +54,10 @@ export async function buildApp(deps: AppDeps, opts: { fullApi: boolean }) {
   app.decorate('db', deps.db);
   app.decorate('queue', deps.queue);
   app.decorate('ses', deps.ses);
+  app.decorate(
+    'sessionSecret',
+    deps.cfg.SESSION_SECRET ?? createHash('sha256').update(`${deps.cfg.ADMIN_TOKEN}:admin-session`).digest('hex'),
+  );
 
   // SNS posts JSON with Content-Type text/plain.
   app.addContentTypeParser('text/plain', { parseAs: 'string' }, (_req, body, done) => {
@@ -88,10 +96,11 @@ export async function buildApp(deps: AppDeps, opts: { fullApi: boolean }) {
     await app.register(emailRoutes, { prefix: '/v1' });
     await app.register(templateRoutes, { prefix: '/v1' });
     await app.register(suppressionRoutes, { prefix: '/v1' });
+    await app.register(adminAuthRoutes, { prefix: '/admin/auth' });
     await app.register(adminRoutes, { prefix: '/admin' });
     await app.register(statsRoutes, { prefix: '/admin/stats' });
     await app.register(webhookRoutes, { prefix: '/webhooks' });
-    await app.register(dashboardRoutes);
+    await app.register(uiRoutes);
   }
 
   return app;

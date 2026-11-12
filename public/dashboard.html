@@ -126,11 +126,6 @@
   .card.show-table .table-view { display: block; }
   .card.show-table .chart-view { display: none; }
 
-  /* Token gate */
-  #gate { max-width: 420px; margin: 80px auto; }
-  #gate p { color: var(--ink-2); }
-  #gate form { display: flex; gap: 8px; }
-  #gate input { flex: 1; }
   .banner { background: var(--surface); border: 1px solid var(--critical); border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; font-size: 13px; display: none; }
 </style>
 </head>
@@ -141,19 +136,10 @@
       <h1>Email delivery</h1>
       <div class="sub" id="subtitle">Performance across all projects</div>
     </div>
-    <div class="sub" id="updated"></div>
+    <div class="sub"><a href="/admin/ui">Admin</a> · <span id="updated"></span></div>
   </header>
 
-  <section id="gate" class="card" hidden>
-    <h2>Admin token</h2>
-    <p>Enter the service's <code>ADMIN_TOKEN</code>. It is kept in this tab's session storage only.</p>
-    <form id="gate-form">
-      <input type="password" id="token" autocomplete="off" placeholder="admin token" required>
-      <button class="plain" type="submit">Open</button>
-    </form>
-  </section>
-
-  <div id="app" hidden>
+  <div id="app">
     <div class="banner" id="banner"></div>
 
     <div class="filters" role="group" aria-label="Filters">
@@ -167,7 +153,7 @@
       <span class="spacer"></span>
       <label class="sub"><input type="checkbox" id="auto" checked> Auto-refresh</label>
       <button class="plain" id="refresh">Refresh</button>
-      <button class="plain" id="signout" title="Forget token">Sign out</button>
+      <button class="plain" id="signout">Sign out</button>
     </div>
 
     <div class="grid kpis" id="kpis"></div>
@@ -228,12 +214,7 @@
   const LIMITS = { bounce: 0.05, complaint: 0.001 };
 
   // ---- state --------------------------------------------------------------
-  const state = { token: null, hours: 168, project: '', projects: [], timer: null, colorOf: new Map() };
-  const store = {
-    get: (k) => { try { return sessionStorage.getItem(k); } catch { return null; } },
-    set: (k, v) => { try { sessionStorage.setItem(k, v); } catch {} },
-    del: (k) => { try { sessionStorage.removeItem(k); } catch {} },
-  };
+  const state = { hours: 168, project: '', projects: [], timer: null, colorOf: new Map() };
 
   // ---- formatting ---------------------------------------------------------
   const nf = new Intl.NumberFormat();
@@ -285,8 +266,9 @@
   async function api(path, params = {}) {
     const url = new URL(path, location.origin);
     for (const [k, v] of Object.entries(params)) if (v !== '' && v != null) url.searchParams.set(k, v);
-    const res = await fetch(url, { headers: { authorization: `Bearer ${state.token}` } });
-    if (res.status === 401) { signOut('Token rejected. Enter it again.'); throw new Error('unauthorized'); }
+    // Authenticated by the admin session cookie set at /admin/login.
+    const res = await fetch(url, { headers: { 'x-requested-with': 'emailsvc-ui' } });
+    if (res.status === 401) { location.replace('/admin/login?reason=expired&next=/dashboard'); throw new Error('unauthorized'); }
     if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
     return res.json();
   }
@@ -642,23 +624,16 @@
   }
 
   // ---- wiring -------------------------------------------------------------
-  function signOut(msg) {
-    store.del('emailsvc_admin_token'); state.token = null; clearInterval(state.timer);
-    $('#app').hidden = true; $('#gate').hidden = false;
-    if (msg) { $('#gate p').textContent = msg; }
-    $('#token').focus();
+  async function signOut() {
+    clearInterval(state.timer);
+    await fetch('/admin/auth/logout', { method: 'POST', headers: { 'x-requested-with': 'emailsvc-ui' } }).catch(() => {});
+    location.replace('/admin/login');
   }
   function start() {
-    $('#gate').hidden = true; $('#app').hidden = false;
     load();
     clearInterval(state.timer);
     state.timer = setInterval(() => { if ($('#auto').checked && document.visibilityState === 'visible') load(); }, 60_000);
   }
-  $('#gate-form').addEventListener('submit', (e) => {
-    e.preventDefault();
-    state.token = $('#token').value.trim(); store.set('emailsvc_admin_token', state.token); $('#token').value = '';
-    start();
-  });
   $('#ranges').addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
     document.querySelectorAll('#ranges button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
@@ -671,8 +646,7 @@
   let resizeTimer; window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(renderAll, 120); });
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { assignColors(state.projects); renderAll(); });
 
-  state.token = store.get('emailsvc_admin_token');
-  if (state.token) start(); else { $('#gate').hidden = false; $('#token').focus(); }
+  start();
 })();
 </script>
 </body>

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in</title>
+<link rel="stylesheet" href="/ui.css">
+</head>
+<body>
+<main>
+  <section class="card login">
+    <h1>Email service</h1>
+    <p class="sub">Enter the service's admin token to manage projects, domains, API keys and suppressions. It is exchanged for a 12-hour session cookie and not kept in the browser.</p>
+    <div class="banner" id="banner" hidden></div>
+    <form id="form" autocomplete="on">
+      <label class="field">Admin token <input type="password" id="token" autocomplete="current-password" required autofocus></label>
+      <button class="primary" type="submit" id="submit">Sign in</button>
+    </form>
+  </section>
+</main>
+<script>
+(() => {
+  'use strict';
+  const $ = (s) => document.querySelector(s);
+  const params = new URLSearchParams(location.search);
+  const next = params.get('next');
+  // Only ever return to a same-origin path, never an absolute URL.
+  const target = next && /^\/[^/\\]/.test(next) ? next : '/admin/ui';
+  if (params.get('reason') === 'expired') { $('#banner').textContent = 'Your session has expired. Sign in again.'; $('#banner').hidden = false; }
+
+  $('#form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    $('#submit').disabled = true; $('#banner').hidden = true;
+    try {
+      const res = await fetch('/admin/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-requested-with': 'emailsvc-ui' },
+        body: JSON.stringify({ token: $('#token').value.trim() }),
+      });
+      if (res.ok) { location.replace(target); return; }
+      const body = await res.json().catch(() => ({}));
+      $('#banner').textContent = body?.error?.message || `Sign-in failed (HTTP ${res.status})`;
+      $('#banner').hidden = false;
+      $('#token').value = ''; $('#token').focus();
+    } catch (err) {
+      $('#banner').textContent = `Network error: ${err.message}`; $('#banner').hidden = false;
+    } finally {
+      $('#submit').disabled = false;
+    }
+  });
+})();
+</script>
+</body>
+</html>

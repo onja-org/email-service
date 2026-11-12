@@ -3,9 +3,11 @@ import pg from 'pg';
 export type Db = pg.Pool;
 export type Queryable = pg.Pool | pg.PoolClient;
 
-export function createDb(connectionString: string): Db {
+export function createDb(connectionString: string, opts: { ssl?: boolean } = {}): Db {
   const pool = new pg.Pool({
     connectionString,
+    // Managed providers terminate TLS with certificates that are not in Node's CA bundle.
+    ...(opts.ssl ? { ssl: { rejectUnauthorized: false } } : {}),
     max: 10,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,

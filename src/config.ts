@@ -13,6 +13,8 @@ const schema = z.object({
   LOG_LEVEL: z.string().default('info'),
 
   DATABASE_URL: z.string().min(1),
+  // Managed Postgres over a public/proxied connection usually needs TLS; private networks don't.
+  DATABASE_SSL: boolish.default('false'),
 
   AWS_REGION: z.string().min(1),
   // Optional: AWS SDK also reads these from the standard env vars / instance role.
@@ -35,6 +37,9 @@ const schema = z.object({
 
   // Bearer token for /admin routes (project + key + domain management).
   ADMIN_TOKEN: z.string().min(16),
+  // Signs admin UI session cookies (the UI logs in with ADMIN_TOKEN and then holds a cookie).
+  // Defaults to a value derived from ADMIN_TOKEN.
+  SESSION_SECRET: z.string().min(16).optional(),
 });
 
 export type Config = z.infer<typeof schema>;
