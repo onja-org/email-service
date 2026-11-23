@@ -1,0 +1,55 @@
+  <section class="page-head">
+    <div class="wrap">
+      <p class="crumbs"><a href="/">Pigeon</a> / What's included</p>
+      <p class="overline">What's included</p>
+      <h1>Every email API feature you need, <em>already done.</em></h1>
+      <p class="intro">Sending one email is easy. Sending thousands reliably, without landing in spam or sending anything twice, isn't. Here's everything Pigeon handles so you don't have to.</p>
+    </div>
+  </section>
+  <div class="page-body">
+  <section class="block" id="features">
+    <div class="wrap">
+      <p class="sec-label reveal"><b>01</b>The full list</p>
+      <div class="ledger reveal">
+        <div><span class="i">01</span><h3>Fast, non-blocking API</h3><p>The call returns as soon as your email is safely queued. Your request handler never waits on a mail server.</p></div>
+        <div><span class="i">02</span><h3>Never sends twice</h3><p>Send an idempotency key, retry as often as you like, and the email still goes out once. Timeouts stop being scary.</p></div>
+        <div><span class="i">03</span><h3>Deliverability built in</h3><p>Every email is DKIM-signed for your domain, with SPF and DMARC alignment. Bounces and spam complaints are suppressed automatically.</p></div>
+        <div><span class="i">04</span><h3>Templates</h3><p>Store templates once and send with <code>{{variables}}</code>. Preview the rendered result before anything goes out.</p></div>
+        <div><span class="i">05</span><h3>Attachments &amp; inline images</h3><p>Invoices, tickets and calendar invites: attach up to 10 files. Embed your logo with <code>cid:</code> so it shows even when the reader blocks remote images.</p></div>
+        <div><span class="i">06</span><h3>Know what happened</h3><p>Every email has a status: queued, sent, delivered, bounced or complained. Fetch it by id whenever you need to.</p></div>
+        <div><span class="i">07</span><h3>Email log with previews</h3><p>Search every email by day, domain, status or recipient, and see it exactly as the recipient did. Kept for 90 days.</p></div>
+        <div><span class="i">08</span><h3>Mistakes caught early</h3><p>Bad addresses, unverified senders and blocked file types are rejected straight away with a clear error code, not hours later.</p></div>
+        <div><span class="i">09</span><h3>No SDK, no lock-in</h3><p>It's plain JSON over HTTPS. Your helper is 30 lines you own, with nothing to install, upgrade or audit.</p></div>
+        <div><span class="i">10</span><h3>Tags for your own reporting</h3><p>Label emails with things like <code>invoice: 42</code> and find them again later.</p></div>
+      </div>
+    </div>
+  </section>
+
+  
+  <section class="block" id="visibility">
+    <div class="wrap">
+      <p class="sec-label reveal"><b>02</b>Visibility</p>
+      <div class="two">
+        <div>
+          <h2 class="reveal">"Did the email go out?" <em>Answer in seconds.</em></h2>
+          <p class="intro reveal">Every email sent from your domain is logged and can be previewed for 90 days. Filter by today, last week, the last 30 days or any date range, then open the email and see exactly what the user received.</p>
+          <ul class="checks reveal">
+            <li><strong>Search by domain, status, recipient or subject.</strong> Find the one email a user says never arrived.</li>
+            <li><strong>Faithful previews,</strong> including inline images and attachments, with the full delivery timeline.</li>
+            <li><strong>Safe by design:</strong> previews never run scripts, follow links or trigger tracking pixels.</li>
+          </ul>
+        </div>
+        <div class="log reveal" aria-label="Example email log">
+          <div class="log-top"><span>Today</span><span>7 days</span><span class="on">30 days</span><span>Custom</span><span class="count">1,287 emails</span></div>
+          <div class="log-row sel"><span class="t">09:41</span><span class="who">ada@customer.com</span><span class="subj">Your receipt for order #4821</span><span class="s g">delivered</span></div>
+          <div class="log-row"><span class="t">09:38</span><span class="who">grace@startup.dev</span><span class="subj">Reset your password</span><span class="s g">delivered</span></div>
+          <div class="log-row"><span class="t">09:12</span><span class="who">alan@typo-domian.com</span><span class="subj">Welcome to Acme</span><span class="s r">bounced</span></div>
+          <div class="log-row"><span class="t">08:57</span><span class="who">linus@kernel.example</span><span class="subj">Your login code</span><span class="s g">delivered</span></div>
+          <div class="log-row"><span class="t">08:30</span><span class="who">margaret@apollo.example</span><span class="subj">Invoice #42 is ready</span><span class="s a">sent</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+    </div>
+  <div class="wrap"><nav class="next" aria-label="More about Pigeon"><a href="/how-it-works"><b>← Previous</b><span>How it works</span></a><a class="r" href="/reliability"><b>Next →</b><span>Reliability</span></a></nav></div>

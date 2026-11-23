@@ -1,0 +1,96 @@
+  <section class="page-head">
+    <div class="wrap">
+      <p class="crumbs"><a href="/">Pigeon</a> / How it works</p>
+      <p class="overline">How it works</p>
+      <h1>Send transactional email from your app <em>in three steps.</em></h1>
+      <p class="intro">No mail servers, no SMTP settings, no vendor dashboards to learn. Get a key, verify your domain, and make one HTTPS call. Two of the three steps we do with you.</p>
+    </div>
+  </section>
+  <div class="page-body">
+  <section class="block" id="how">
+    <div class="wrap">
+      <p class="sec-label reveal"><b>01</b>Three steps</p>
+      <div class="steps reveal">
+        <div class="step">
+          <div class="n"><b>1</b><span>1 email</span></div>
+          <h3>Tell us about your app</h3>
+          <p>Email us and say what you're building. We create a project for you and send you an API key.</p>
+        </div>
+        <div class="step">
+          <div class="n"><b>2</b><span>Usually minutes</span></div>
+          <h3>Verify your domain</h3>
+          <p>We give you the exact DNS records, already formatted for Namecheap, Cloudflare or GoDaddy. Paste them in and your mail is signed and authenticated (DKIM, SPF and DMARC) as soon as DNS catches up.</p>
+        </div>
+        <div class="step">
+          <div class="n"><b>3</b><span>1 API call</span></div>
+          <h3>Send</h3>
+          <p>One <code>POST /v1/emails</code> with plain JSON. Copy the ready-made helper for Node.js, Python or Go from the docs.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  
+  <section class="block" id="dx">
+    <div class="wrap">
+      <p class="sec-label reveal"><b>02</b>Developer experience</p>
+      <div class="two">
+        <div>
+          <h2 class="reveal">The API you'd design if you were in a hurry <em>and had good taste.</em></h2>
+          <p class="intro reveal">One resource, predictable JSON and error codes you can switch on. The docs give you a complete, copy-paste client for your language, with retries and idempotency already wired in.</p>
+          <ul class="checks reveal">
+            <li><strong>Errors that tell you what to fix:</strong> <code>sender_domain_not_allowed</code>, <code>invalid_recipient</code> with the bad addresses listed, <code>attachments_too_large</code>, and more.</li>
+            <li><strong>Works from any backend:</strong> Node.js, Python, Go, or anything that can make an HTTPS request.</li>
+          </ul>
+        </div>
+        <div class="reveal">
+          <div class="tabs" role="tablist" aria-label="Language">
+            <button type="button" role="tab" aria-selected="true" data-lang="python">Python</button>
+            <button type="button" role="tab" aria-selected="false" data-lang="go">Go</button>
+            <button type="button" role="tab" aria-selected="false" data-lang="curl">curl</button>
+          </div>
+          <div class="sheet" data-code="python">
+<pre><code><span class="tk">from</span> pigeon <span class="tk">import</span> api
+
+api<span class="tp">(</span><span class="ts">"POST"</span><span class="tp">,</span> <span class="ts">"/v1/emails"</span><span class="tp">, {</span>
+    <span class="ts">"from"</span><span class="tp">:</span> <span class="ts">"Acme &lt;hello@acme.io&gt;"</span><span class="tp">,</span>
+    <span class="ts">"to"</span><span class="tp">: [</span>user<span class="tp">.</span>email<span class="tp">],</span>
+    <span class="ts">"template"</span><span class="tp">:</span> <span class="ts">"welcome"</span><span class="tp">,</span>
+    <span class="ts">"template_data"</span><span class="tp">: {</span><span class="ts">"name"</span><span class="tp">:</span> user<span class="tp">.</span>first_name<span class="tp">},</span>
+    <span class="ts">"idempotency_key"</span><span class="tp">:</span> <span class="ts">f"welcome-</span><span class="tp">{</span>user<span class="tp">.</span>id<span class="tp">}</span><span class="ts">"</span><span class="tp">,</span>
+<span class="tp">})</span></code></pre>
+          </div>
+          <div class="sheet" data-code="go" hidden>
+<pre><code>pdf<span class="tp">,</span> _ <span class="tp">:=</span> os<span class="tp">.</span><span class="tf">ReadFile</span><span class="tp">(</span><span class="ts">"invoice-42.pdf"</span><span class="tp">)</span>
+
+email<span class="tp">,</span> err <span class="tp">:=</span> client<span class="tp">.</span><span class="tf">Send</span><span class="tp">(</span>ctx<span class="tp">,</span> pigeon<span class="tp">.</span>SendRequest<span class="tp">{</span>
+	From<span class="tp">:</span>    <span class="ts">"Billing &lt;billing@acme.io&gt;"</span><span class="tp">,</span>
+	To<span class="tp">:</span>      <span class="tp">[]</span><span class="tk">string</span><span class="tp">{</span><span class="ts">"ada@customer.com"</span><span class="tp">},</span>
+	Subject<span class="tp">:</span> <span class="ts">"Your invoice #42"</span><span class="tp">,</span>
+	Text<span class="tp">:</span>    <span class="ts">"Hi Ada, your invoice is attached."</span><span class="tp">,</span>
+	Attachments<span class="tp">: []</span>pigeon<span class="tp">.</span>Attachment<span class="tp">{</span>
+		<span class="tp">{</span>Filename<span class="tp">:</span> <span class="ts">"invoice-42.pdf"</span><span class="tp">,</span> Content<span class="tp">:</span> pdf<span class="tp">},</span>
+	<span class="tp">},</span>
+	IdempotencyKey<span class="tp">:</span> <span class="ts">"invoice-42-sent"</span><span class="tp">,</span>
+<span class="tp">})</span></code></pre>
+          </div>
+          <div class="sheet" data-code="curl" hidden>
+<pre><code><span class="tf">curl</span> -X POST <span class="ts">"$PIGEON_URL/v1/emails"</span> \
+  -H <span class="ts">"Authorization: Bearer $PIGEON_KEY"</span> \
+  -H <span class="ts">"content-type: application/json"</span> \
+  -d <span class="ts">'{
+    "from": "Acme &lt;no-reply@acme.io&gt;",
+    "to": ["ada@customer.com"],
+    "subject": "Your login code",
+    "text": "Your code is 482913. It expires in 10 minutes."
+  }'</span>
+
+<span class="tc"># → 202 {"id": "8f1c…", "status": "queued", …}</span></code></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+    </div>
+  <div class="wrap"><nav class="next" aria-label="More about Pigeon"><a class="r" href="/features"><b>Next →</b><span>What's included</span></a></nav></div>

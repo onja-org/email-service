@@ -15,7 +15,8 @@
     "setup:aws": "tsx src/scripts/setup-aws.ts",
     "ses:test": "tsx src/scripts/ses-test.ts",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "og:images": "tsx src/scripts/og-images.ts"
   },
   "dependencies": {
     "@aws-sdk/client-sesv2": "^3.700.0",

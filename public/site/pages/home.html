@@ -1,0 +1,95 @@
+  <!-- ======= HERO ======= -->
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div>
+        <p class="overline">Transactional email, by Onja</p>
+        <h1>Email that <em>lands.</em><span class="small">A transactional email API that keeps your code small.</span></h1>
+        <p class="lede">Pigeon sends your app's password resets, receipts and notifications from <em>your own domain</em>. Make one HTTPS call and you're done. Pigeon handles queueing, retries, bounces and deliverability, so you can get back to your product.</p>
+        <div class="cta-row">
+          <a class="btn btn-post" data-mail="access" href="mailto:internal.development@onja.org">Get your API key →</a>
+          <a class="link" href="/docs">Read the 5-minute guide</a>
+        </div>
+        <ul class="fine">
+          <li>No SDK to install</li>
+          <li>Node.js, Python, Go</li>
+          <li>Never sends twice</li>
+        </ul>
+      </div>
+
+      <div class="desk" aria-label="Example: one API call sends a receipt that arrives in the customer's inbox">
+        <div class="letter">
+          <div class="letter-head"><span>send-receipt.js</span><span>POST /v1/emails</span></div>
+<pre><code><span class="tk">await</span> <span class="tf">fetch</span><span class="tp">(</span><span class="ts">`${PIGEON_URL}/v1/emails`</span><span class="tp">, {</span>
+  method<span class="tp">:</span> <span class="ts">'POST'</span><span class="tp">,</span>
+  headers<span class="tp">: {</span> Authorization<span class="tp">:</span> <span class="ts">`Bearer ${PIGEON_KEY}`</span><span class="tp">,</span>
+             <span class="ts">'content-type'</span><span class="tp">:</span> <span class="ts">'application/json'</span> <span class="tp">},</span>
+  body<span class="tp">:</span> JSON<span class="tp">.</span><span class="tf">stringify</span><span class="tp">({</span>
+    from<span class="tp">:</span> <span class="ts">'Acme &lt;receipts@acme.io&gt;'</span><span class="tp">,</span>
+    to<span class="tp">:</span> <span class="tp">[</span><span class="ts">'ada@customer.com'</span><span class="tp">],</span>
+    template<span class="tp">:</span> <span class="ts">'receipt'</span><span class="tp">,</span>
+    template_data<span class="tp">: {</span> name<span class="tp">:</span> <span class="ts">'Ada'</span><span class="tp">,</span> total<span class="tp">:</span> <span class="ts">'€120'</span> <span class="tp">},</span>
+    idempotency_key<span class="tp">:</span> <span class="ts">`order-${order.id}`</span><span class="tp">,</span>
+  <span class="tp">}),</span>
+<span class="tp">});</span>
+<span class="tc">// 202 Accepted · { "status": "queued" }</span></code></pre>
+        </div>
+        <div class="envelope" aria-hidden="true">
+          <div class="env-from"><b>Acme</b><br>receipts@acme.io</div>
+          <svg class="stamp"><use href="#stamp"/></svg>
+          <svg class="postmark"><use href="#postmark"/></svg>
+          <div class="env-to">Ada Lovelace<span class="addr">ada@customer.com</span></div>
+          <div class="env-re">Re: Your receipt for order #4821<br><span class="att"><b>PDF</b>receipt-4821.pdf</span></div>
+          <div class="trackline"><span class="t1">queued</span>→<span class="t2">sent</span>→<span class="t3 ok">delivered</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="wrap">
+      <div class="manifest">
+        <ul>
+          <li>Your domain, signed and verified</li>
+          <li>Templates with variables</li>
+          <li>Attachments &amp; inline images</li>
+          <li>Delivery tracking</li>
+          <li>Email log with previews</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="tour">
+    <div class="wrap">
+      <p class="sec-label reveal"><b>01</b>Why developers pick Pigeon</p>
+      <h2 class="reveal">One affordable email sending API, <em>for every app you build.</em></h2>
+      <p class="intro reveal">No enterprise dashboard, no SDK and no surprises. Pick a topic, or go straight to the docs.</p>
+      <div class="tour reveal">
+        <a href="/how-it-works"><span class="i">How it works</span><h3>Sending the same day</h3><p>Email us, add the DNS records we prepare for your domain, then make one POST from your backend.</p><span class="go link">See the three steps →</span></a>
+        <a href="/features"><span class="i">What's included</span><h3>Everything behind one endpoint</h3><p>Templates, attachments, inline images, tags, delivery tracking and a searchable 90-day log.</p><span class="go link">See every feature →</span></a>
+        <a href="/reliability"><span class="i">Reliability</span><h3>Built not to drop mail</h3><p>Stored before we reply, retried with backoff, never sent twice, and bounces suppressed for you.</p><span class="go link">How delivery stays reliable →</span></a>
+        <a href="/faq"><span class="i">FAQ</span><h3>Straight answers</h3><p>Your own domain, SDKs, timeouts, attachments and limits, answered before you ask.</p><span class="go link">Read the FAQ →</span></a>
+        <a href="/docs"><span class="i">Docs</span><h3>Copy, paste, send</h3><p>Ready-made clients for Node.js, Python and Go, with every endpoint and error code explained.</p><span class="go link">Open the developer guide →</span></a>
+        <a href="#contact"><span class="i">Get access</span><h3>Talk to a person</h3><p>Tell us what you're building. Access, questions and support all go to the same inbox.</p><span class="go link">Write to us →</span></a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======= BUILT BY ONJA ======= -->
+  <section class="unbuilt">
+    <div class="wrap">
+      <div>
+        <p class="sec-label reveal"><b>02</b>Built by Onja</p>
+        <h2 class="reveal">For the teams shipping <em>real products.</em></h2>
+        <p class="reveal">Pigeon is Onja's own email infrastructure, and now it can power your app too. When you need help, there's a team you can actually talk to.</p>
+      </div>
+      <ul class="struck reveal" aria-label="Things you don't have to build">
+        <li><s>An SMTP server</s><span>one HTTPS call</span></li>
+        <li><s>A retry queue</s><span>backoff built in</span></li>
+        <li><s>Bounce &amp; complaint handling</s><span>auto-suppressed</span></li>
+        <li><s>DKIM, SPF and DMARC setup</s><span>records handed to you</span></li>
+        <li><s>Duplicate-send protection</s><span>idempotency keys</span></li>
+        <li><s>A way to see what was sent</s><span>90-day log</span></li>
+      </ul>
+    </div>
+  </section>
+
+  

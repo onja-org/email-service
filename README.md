@@ -113,7 +113,9 @@ A project may have several domains; it may send from any of them or their subdom
 Projects call `/v1/*` with `Authorization: Bearer es_live_...`.
 
 The service is branded **Pigeon** for developers.
-- **`/` is the marketing page** (`public/home.html`). It sends people to `internal.development@onja.org` for access, questions and support.
+- **The marketing site** is `/`, `/how-it-works`, `/features`, `/reliability` and `/faq`. Each page is a fragment in `public/site/pages/`, rendered into `public/site/layout.html` (shared nav, closing call to action and footer) with `public/site/site.css`. Every call to action goes to `internal.development@onja.org`.
+- **SEO.** Each page's title, meta description and share image live in `src/site/seo.ts`. That file also renders the head: canonical URL, Open Graph and Twitter tags, and JSON-LD for Organization, WebSite, SoftwareApplication, BreadcrumbList and FAQPage (the FAQ data is read from the visible FAQ). It also generates `/robots.txt` and `/sitemap.xml`. URLs come from `PUBLIC_URL` (default `https://email-sending-service.onja.dev`), never from request headers. Admin pages send `X-Robots-Tag: noindex`. Tests require every page to have one unique title, description, canonical and h1, plus a working 1200×630 share image.
+- **Share images and icons** (`public/og/*.png`, `public/brand/*.png`) are rendered by `npm run og:images` with headless Chrome in the brand fonts. Re-run it after changing a page title or the logo, and commit the PNGs.
 - **`/docs` is the developer guide** (`public/docs.html`) for project teams. It covers setup, sending, attachments, templates, retries with idempotency keys, delivery tracking, suppressions and error codes, with copy-paste clients for Node.js, Python and Go.
 
 Both pages are public and static (no data, no auth), and neither names the underlying sending provider. Keep it that way: a test fails if either page mentions it.

@@ -1,0 +1,37 @@
+  <section class="page-head">
+    <div class="wrap">
+      <p class="crumbs"><a href="/">Pigeon</a> / Reliability</p>
+      <p class="overline">Reliability</p>
+      <h1>Reliable email delivery, because a password reset <em>can't afford</em> to get lost.</h1>
+      <p class="intro">Transactional email is part of your product. When it doesn't arrive, users get locked out, orders feel fake and support tickets pile up. Pigeon is built so that doesn't happen.</p>
+    </div>
+  </section>
+  <div class="page-body">
+  <section class="block" id="reliability">
+    <div class="wrap">
+      <p class="sec-label reveal"><b>01</b>Delivery guarantees</p>
+      <div class="two">
+        <div>
+          <ul class="checks reveal">
+            <li><strong>Queued before we say yes.</strong> A <code>202</code> means your email is stored. If something hiccups downstream, it's retried with backoff.</li>
+            <li><strong>At most once, even under retries.</strong> Repeat requests with the same idempotency key, and duplicate deliveries inside the pipeline, are detected and dropped.</li>
+            <li><strong>A sender reputation that protects everyone.</strong> Addresses that bounce or complain are suppressed for every project, so one bad list can't hurt your deliverability.</li>
+            <li><strong>Nothing is silent.</strong> If an email fails for good, it says <code>failed</code> and tells you why in <code>last_error</code>.</li>
+          </ul>
+        </div>
+        <div class="slip reveal" aria-label="Email status lifecycle">
+          <div class="slip-head"><span>Tracking slip</span><span>No. 8f1c2a8e</span></div>
+          <div class="slip-row"><span class="s n">queued</span><span class="w">Stored and waiting to send. Your API call has already returned.</span></div>
+          <div class="slip-row"><span class="s n">sending</span><span class="w">Claimed by one worker, so it can't be picked up twice.</span></div>
+          <div class="slip-row"><span class="s a">sent</span><span class="w">Handed off for delivery to the recipient's mail server.</span></div>
+          <div class="slip-row"><span class="s g">delivered</span><span class="w">The recipient's server accepted it.</span></div>
+          <div class="slip-row"><span class="s r">bounced</span><span class="w">The address doesn't exist, so it's suppressed from now on.</span></div>
+          <div class="slip-row"><span class="s r">suppressed</span><span class="w">Skipped to protect your reputation, and listed in the response.</span></div>
+          <p class="slip-foot">Temporary failures retry automatically with exponential backoff, so you don't need a job queue of your own.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+    </div>
+  <div class="wrap"><nav class="next" aria-label="More about Pigeon"><a href="/features"><b>← Previous</b><span>What's included</span></a><a class="r" href="/faq"><b>Next →</b><span>FAQ</span></a></nav></div>

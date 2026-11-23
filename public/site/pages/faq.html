@@ -1,0 +1,27 @@
+  <section class="page-head">
+    <div class="wrap">
+      <p class="crumbs"><a href="/">Pigeon</a> / FAQ</p>
+      <p class="overline">FAQ</p>
+      <h1>Transactional email API: <em>the questions developers ask first.</em></h1>
+      <p class="intro">Your own domain, SDKs, timeouts, attachments, limits and support. Short, straight answers. Anything else, just email us.</p>
+    </div>
+  </section>
+  <div class="page-body">
+  <section class="block" id="faq">
+    <div class="wrap">
+      <p class="sec-label reveal"><b>01</b>Questions &amp; answers</p>
+      <div class="faq reveal">
+        <div><h3>Can I send from my own domain?</h3><p>Yes, and you should. Your emails come from <code>you@yourdomain.com</code>, signed with DKIM for your domain. We give you the DNS records to add, and you can use subdomains like <code>mail.yourdomain.com</code> too.</p></div>
+        <div><h3>What kind of email is Pigeon for?</h3><p>Transactional email: password resets, login codes, receipts, invoices, notifications and anything else your app sends in response to something a user did. It isn't a newsletter or bulk marketing tool.</p></div>
+        <div><h3>Do I need an SDK or a special library?</h3><p>No. It's JSON over HTTPS. The docs include a complete, copy-paste helper for Node.js, Python and Go that handles auth, errors and safe retries. If your language can make an HTTP request, you can use Pigeon.</p></div>
+        <div><h3>What happens if my request times out?</h3><p>Retry it with the same <code>idempotency_key</code>. If the first request did get through, Pigeon returns the original email and doesn't send it again. If it didn't, the email is sent now. Either way, your user gets exactly one.</p></div>
+        <div><h3>Can I send attachments?</h3><p>Yes. Up to 10 files and 10 MB per email, including inline images for your HTML. Executables and scripts are rejected up front so they can't hurt your deliverability.</p></div>
+        <div><h3>How do I know whether an email was delivered?</h3><p>Fetch it by id at any time to get its status: <code>queued</code>, <code>sent</code>, <code>delivered</code>, <code>bounced</code> or <code>complained</code>. The full event timeline is there too, and every email is also visible in the log, with a preview, for 90 days.</p></div>
+        <div><h3>What are the limits?</h3><p>Up to 50 recipients per email across to, cc and bcc, 10 attachments totalling 10 MB, and emails are kept for 90 days. If you need something different, talk to us.</p></div>
+        <div><h3>How do I get started, or get help?</h3><p>Email <a href="mailto:internal.development@onja.org">internal.development@onja.org</a>. Tell us about your app and the domain you want to send from, and we'll set you up. The same address works for questions and support.</p></div>
+      </div>
+    </div>
+  </section>
+
+    </div>
+  <div class="wrap"><nav class="next" aria-label="More about Pigeon"><a href="/reliability"><b>← Previous</b><span>Reliability</span></a><a class="r" href="/docs"><b>Next →</b><span>Read the docs</span></a></nav></div>

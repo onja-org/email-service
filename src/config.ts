@@ -37,6 +37,14 @@ const schema = z.object({
   // SNS topic that SES event destinations publish to. Set after `npm run setup:aws`.
   SNS_EVENTS_TOPIC_ARN: z.string().optional(),
 
+  // Public origin of the marketing site and docs, used for canonical URLs, Open Graph
+  // tags and the sitemap. Never derived from request headers (they can be forged).
+  PUBLIC_URL: z
+    .string()
+    .url()
+    .transform((u) => u.replace(/\/+$/, ''))
+    .default('https://email-sending-service.onja.dev'),
+
   // Bearer token for /admin routes (project + key + domain management).
   ADMIN_TOKEN: z.string().min(16),
   // Signs admin UI session cookies (the UI logs in with ADMIN_TOKEN and then holds a cookie).

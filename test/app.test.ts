@@ -27,6 +27,7 @@ const cfg: Config = {
   SES_DRY_RUN: true,
   SES_CONFIG_SET_PREFIX: 'emailsvc',
   ADMIN_TOKEN: 'test-admin-token-0123456789',
+  PUBLIC_URL: 'https://pigeon.test',
 };
 
 const key = generateApiKey();
@@ -204,6 +205,90 @@ describe('auth', () => {
   });
 });
 
+describe('public site SEO', () => {
+  const PAGES = ['/', '/how-it-works', '/features', '/reliability', '/faq', '/docs'];
+  const one = (body: string, re: RegExp) => [...body.matchAll(re)];
+  const meta = (body: string, attr: string, name: string) =>
+    body.match(new RegExp(`<meta ${attr}="${name}" content="([^"]*)"`))?.[1];
+
+  it('gives every page its own title, description, canonical, h1 and share image', async () => {
+    const titles = new Set<string>();
+    const descriptions = new Set<string>();
+    for (const url of PAGES) {
+      const res = await app.inject({ method: 'GET', url });
+      expect(res.statusCode, url).toBe(200);
+      expect(res.headers['x-robots-tag'], url).toBeUndefined();
+      const body = res.body;
+      expect(one(body, /<title>/g), `${url} title`).toHaveLength(1);
+      expect(one(body, /<meta name="description"/g), `${url} description`).toHaveLength(1);
+      expect(one(body, /<link rel="canonical"/g), `${url} canonical`).toHaveLength(1);
+      expect(one(body, /<h1[\s>]/g), `${url} h1`).toHaveLength(1);
+
+      const title = body.match(/<title>([^<]*)<\/title>/)![1];
+      const description = meta(body, 'name', 'description')!;
+      expect(title.length, `${url} title length`).toBeLessThanOrEqual(62);
+      expect(description.length, `${url} description length`).toBeGreaterThan(110);
+      expect(description.length, `${url} description length`).toBeLessThanOrEqual(160);
+      titles.add(title);
+      descriptions.add(description);
+
+      const canonical = body.match(/<link rel="canonical" href="([^"]*)"/)![1];
+      expect(canonical).toBe(`https://pigeon.test${url}`);
+      expect(meta(body, 'property', 'og:url')).toBe(canonical);
+      expect(meta(body, 'property', 'og:title')).toBe(title);
+      expect(meta(body, 'name', 'twitter:card')).toBe('summary_large_image');
+
+      const image = meta(body, 'property', 'og:image')!;
+      expect(image.startsWith('https://pigeon.test/og/')).toBe(true);
+      const png = await app.inject({ method: 'GET', url: image.replace('https://pigeon.test', '') });
+      expect(png.statusCode, image).toBe(200);
+      expect(png.headers['content-type']).toBe('image/png');
+      expect(png.rawPayload.readUInt32BE(16), `${image} width`).toBe(1200);
+      expect(png.rawPayload.readUInt32BE(20), `${image} height`).toBe(630);
+
+      const ld = body.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)![1];
+      expect(() => JSON.parse(ld), `${url} JSON-LD`).not.toThrow();
+      expect(body, `${url} provider name`).not.toMatch(/\bSES\b|amazon|aws/i);
+    }
+    expect(titles.size).toBe(PAGES.length);
+    expect(descriptions.size).toBe(PAGES.length);
+  });
+
+  it('marks the current section in the menu and keeps FAQ structured data in sync with the page', async () => {
+    const features = await app.inject({ method: 'GET', url: '/features' });
+    expect(features.body).toContain('data-page="features" aria-current="page"');
+    const faq = await app.inject({ method: 'GET', url: '/faq' });
+    const ld = JSON.parse(faq.body.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)![1]);
+    const faqPage = ld['@graph'].find((n: { '@type': string }) => n['@type'] === 'FAQPage');
+    expect(faqPage.mainEntity.length).toBe(8);
+    expect(faq.body).toContain(faqPage.mainEntity[0].name);
+  });
+
+  it('serves robots.txt and a sitemap of exactly the public pages', async () => {
+    const robots = await app.inject({ method: 'GET', url: '/robots.txt' });
+    expect(robots.body).toContain('Sitemap: https://pigeon.test/sitemap.xml');
+    expect(robots.body).toContain('Disallow: /v1/');
+    expect(robots.body).not.toContain('Disallow: /admin');
+    const sitemap = await app.inject({ method: 'GET', url: '/sitemap.xml' });
+    expect(sitemap.headers['content-type']).toContain('application/xml');
+    const locs = [...sitemap.body.matchAll(/<loc>([^<]*)<\/loc>/g)].map((m) => m[1]);
+    expect(locs).toEqual(PAGES.map((p) => `https://pigeon.test${p}`));
+  });
+
+  it('keeps admin pages out of search results, and serves icons safely', async () => {
+    for (const url of ['/admin/login', '/admin/ui', '/dashboard']) {
+      const res = await app.inject({ method: 'GET', url });
+      expect(res.headers['x-robots-tag'], url).toBe('noindex, nofollow');
+    }
+    for (const url of ['/favicon.svg', '/apple-touch-icon.png', '/brand/logo-512.png', '/brand/icon-96.png']) {
+      expect((await app.inject({ method: 'GET', url })).statusCode, url).toBe(200);
+    }
+    for (const url of ['/og/..%2Fdocs.html', '/og/home.jpg', '/brand/..%2F..%2Fpackage.json', '/og/missing.png']) {
+      expect((await app.inject({ method: 'GET', url })).statusCode, url).toBe(404);
+    }
+  });
+});
+
 describe('admin UI sessions', () => {
   const ui = { 'x-requested-with': 'emailsvc-ui' };
   const cookieOf = (res: { headers: Record<string, unknown> }) => String(res.headers['set-cookie']).split(';')[0];
@@ -215,11 +300,11 @@ describe('admin UI sessions', () => {
       expect(res.headers['content-security-policy']).toContain("frame-ancestors 'none'");
     }
     const home = await app.inject({ method: 'GET', url: '/' });
-    expect(home.body).toContain('<title>Pigeon · Email that lands</title>');
+    expect(home.body).toContain('<title>Pigeon: Transactional Email API for Developers | Onja</title>');
     expect(home.body).toContain('internal.development@onja.org');
     expect(home.body).toContain('href="/docs"');
     const docs = await app.inject({ method: 'GET', url: '/docs' });
-    expect(docs.body).toContain('<title>Pigeon developer guide</title>');
+    expect(docs.body).toContain('<title>Pigeon Docs: Send Email from Node.js, Python &amp; Go</title>');
     expect(docs.body).toContain('href="/admin/login"');
     // Public pages never name the sending provider.
     for (const body of [home.body, docs.body]) expect(body).not.toMatch(/\bSES\b|amazon|aws/i);

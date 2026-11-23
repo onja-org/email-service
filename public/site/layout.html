@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+{{HEAD}}
+<meta name="theme-color" content="#f3ede0">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/brand/icon-96.png" type="image/png" sizes="96x96">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preload" href="/fonts/fraunces.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/instrument-sans.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/site.css">
+</head>
+<body>
+<div class="airmail-bar" aria-hidden="true"></div>
+
+<!-- Brand marks, defined once -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <!-- The pigeon, in profile, with its iridescent neck -->
+    <symbol id="pigeon" viewBox="0 0 64 64">
+      <path fill="currentColor" d="M6 41l12-6c6-4 11-7 17-12 0-7 5-12 11-12 4 0 7 3 7 6l6 2-6 2c-1 2-2 4-1 7 3 6 1 13-7 17-8 4-19 4-27 1z"/>
+      <path fill="var(--neck)" d="M35 23c3 4 9 6 16 4-1-3-1-5 1-8-6 2-12 3-17 4z"/>
+      <path fill="var(--neck-2)" d="M38 26c4 2 8 3 13 1l-1-3c-4 1-8 1-12 2z" opacity=".9"/>
+      <circle cx="48" cy="15.5" r="1.9" fill="var(--sheet)"/>
+      <path d="M20 39c7-5 15-6 24-2M24 44c6-3 12-3 18-1" fill="none" stroke="var(--sheet)" stroke-width="1.6" stroke-linecap="round" opacity=".55"/>
+      <path d="M34 50l-1 7m10-8l1 8m-14 0h6m8 0h6" stroke="var(--post)" stroke-width="2" stroke-linecap="round" fill="none"/>
+    </symbol>
+    <!-- Perforated postage stamp -->
+    <symbol id="stamp" viewBox="0 0 82 98">
+      <rect x="3" y="3" width="76" height="92" fill="#c8361d"/>
+      <rect x="3" y="3" width="76" height="92" fill="none" stroke="var(--sheet)" stroke-width="6" stroke-dasharray="0 7.6" stroke-linecap="round"/>
+      <rect x="10" y="10" width="62" height="78" fill="none" stroke="#fbf7ee" stroke-width="1" opacity=".5"/>
+      <g transform="translate(13 12) scale(.86)" style="color:#fbf7ee"><use href="#pigeon"/></g>
+      <text x="41" y="77" text-anchor="middle" fill="#fbf7ee" style="font: 600 9px 'IBM Plex Mono', monospace; letter-spacing: .18em">PIGEON</text>
+      <text x="41" y="85.5" text-anchor="middle" fill="#fbf7ee" opacity=".8" style="font: 500 6.4px 'IBM Plex Mono', monospace; letter-spacing: .1em">1 API CALL</text>
+    </symbol>
+    <!-- Circular postmark with cancellation waves -->
+    <symbol id="postmark" viewBox="0 0 150 100">
+      <path id="pm-arc" d="M50 50 m-35 0 a35 35 0 1 1 70 0 a35 35 0 1 1 -70 0" fill="none"/>
+      <circle cx="50" cy="50" r="45" fill="none" stroke="currentColor" stroke-width="2"/>
+      <circle cx="50" cy="50" r="27" fill="none" stroke="currentColor" stroke-width="1.4"/>
+      <text fill="currentColor" style="font: 600 8.6px 'IBM Plex Mono', monospace; letter-spacing: .22em"><textPath href="#pm-arc">DELIVERED · PIGEON · ONJA ·</textPath></text>
+      <text x="50" y="49" text-anchor="middle" fill="currentColor" style="font: 600 14px 'IBM Plex Mono', monospace">09:41</text>
+      <text x="50" y="61" text-anchor="middle" fill="currentColor" style="font: 500 7px 'IBM Plex Mono', monospace; letter-spacing: .14em">TODAY</text>
+      <path d="M98 30c8-6 13 6 21 0s13 6 21 0M98 44c8-6 13 6 21 0s13 6 21 0M98 58c8-6 13 6 21 0s13 6 21 0M98 72c8-6 13 6 21 0s13 6 21 0" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+    </symbol>
+  </defs>
+</svg>
+
+<header class="nav" id="nav">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="Pigeon home"><svg class="logo" aria-hidden="true"><use href="#pigeon"/></svg><span class="brand-name">Pigeon</span></a>
+    <nav class="nav-links" aria-label="Main">
+      <a href="/how-it-works" data-page="how-it-works">How it works</a>
+      <a href="/features" data-page="features">What's included</a>
+      <a href="/reliability" data-page="reliability">Reliability</a>
+      <a href="/faq" data-page="faq">FAQ</a>
+      <a href="/docs" data-page="docs">Docs</a>
+    </nav>
+    <span class="spacer"></span>
+    <a class="link" href="/docs">Read the docs</a>
+    <a class="btn btn-post btn-sm" data-mail="access" href="mailto:internal.development@onja.org">Get access</a>
+  </div>
+</header>
+
+<main>
+{{BODY}}
+
+  <!-- ======= CLOSING: an addressed envelope ======= -->
+  <section class="final" id="contact">
+    <div class="wrap">
+      <div class="big-env reveal">
+        <svg class="stamp" aria-hidden="true"><use href="#stamp"/></svg>
+        <svg class="postmark" aria-hidden="true"><use href="#postmark"/></svg>
+        <h2>Stop babysitting email. <em>Ship the feature.</em></h2>
+        <p class="intro">Tell us what you're building and we'll get you set up. Most teams send their first email the same day.</p>
+        <div class="address">
+          <div class="line"><span class="k">To</span><span class="v">The Pigeon team, Onja</span></div>
+          <div class="line"><span class="k">Email</span><span class="v"><a href="mailto:internal.development@onja.org">internal.development@onja.org</a><button type="button" class="copy-mail" id="copy-mail">Copy</button></span></div>
+          <div class="line"><span class="k">Re</span><span class="v">Access, questions &amp; support</span></div>
+        </div>
+        <div class="cta-row">
+          <a class="link" data-mail="question" href="mailto:internal.development@onja.org">Ask a question</a>
+          <a class="btn btn-post" data-mail="access" href="mailto:internal.development@onja.org">Request access →</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <a class="brand" href="/"><svg class="logo" aria-hidden="true"><use href="#pigeon"/></svg><span class="brand-name">Pigeon</span></a>
+    <span>Transactional email API, made by Onja</span>
+    <span class="spacer"></span>
+    <nav aria-label="Footer" style="display:flex;gap:14px 22px;flex-wrap:wrap">
+      <a href="/how-it-works">How it works</a>
+      <a href="/features">Features</a>
+      <a href="/reliability">Reliability</a>
+      <a href="/faq">FAQ</a>
+      <a href="/docs">Docs</a>
+      <a href="mailto:internal.development@onja.org">Support</a>
+      <a href="/admin/login" rel="nofollow">Admin sign in</a>
+    </nav>
+  </div>
+</footer>
+<div class="airmail-bar" aria-hidden="true"></div>
+
+<script>
+(() => {
+  'use strict';
+  const MAIL = 'internal.development@onja.org';
+  const TEMPLATES = {
+    access: {
+      subject: 'Pigeon access request',
+      body: 'Hi Pigeon team,\n\nWe would like to send email with Pigeon.\n\nApp / project name:\nWhat it sends (e.g. password resets, receipts):\nDomain to send from:\nRough volume per month:\nTech stack:\n\nThanks!',
+    },
+    question: { subject: 'Question about Pigeon', body: '' },
+  };
+  for (const a of document.querySelectorAll('a[data-mail]')) {
+    const t = TEMPLATES[a.dataset.mail];
+    if (!t) continue;
+    const q = new URLSearchParams({ subject: t.subject, ...(t.body ? { body: t.body } : {}) }).toString().replace(/\+/g, '%20');
+    a.href = `mailto:${MAIL}?${q}`;
+  }
+
+  // Every lookup is optional: not every page has every block, and a throw here
+  // would leave the .reveal content invisible.
+  const copy = document.getElementById('copy-mail');
+  if (copy) copy.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(MAIL); copy.textContent = 'Copied'; }
+    catch { copy.textContent = 'Select & copy'; }
+    setTimeout(() => { copy.textContent = 'Copy'; }, 1600);
+  });
+
+  const nav = document.getElementById('nav');
+  if (nav) {
+    const onScroll = () => nav.classList.toggle('scrolled', window.scrollY > 8);
+    window.addEventListener('scroll', onScroll, { passive: true }); onScroll();
+  }
+
+  const tabs = document.querySelectorAll('.tabs button');
+  for (const b of tabs) b.addEventListener('click', () => {
+    for (const x of tabs) x.setAttribute('aria-selected', String(x === b));
+    for (const c of document.querySelectorAll('[data-code]')) c.hidden = c.dataset.code !== b.dataset.lang;
+  });
+
+  const els = document.querySelectorAll('.reveal');
+  if ('IntersectionObserver' in window && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+    }, { rootMargin: '0px 0px -8% 0px' });
+    els.forEach((el) => io.observe(el));
+  } else {
+    els.forEach((el) => el.classList.add('in'));
+  }
+})();
+</script>
+</body>
+</html>
