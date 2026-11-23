@@ -32,6 +32,28 @@ export const uiRoutes: FastifyPluginAsync = async (app) => {
       .header('x-content-type-options', 'nosniff')
       .send(await page(name));
 
+  // Self-hosted brand fonts (Fraunces, Instrument Sans, IBM Plex Mono; OFL licences alongside).
+  // Read as raw bytes: page() decodes UTF-8, which would corrupt woff2.
+  const fonts = new Map<string, Buffer>();
+  app.get<{ Params: { file: string } }>('/fonts/:file', async (req, reply) => {
+    const { file } = req.params;
+    if (!/^[a-z0-9-]+\.woff2$/.test(file)) return reply.status(404).send({ error: { code: 'not_found', message: 'Font not found' } });
+    let bytes = fonts.get(file);
+    if (!bytes) {
+      try {
+        bytes = await readFile(path.join(publicDir, 'fonts', file));
+      } catch {
+        return reply.status(404).send({ error: { code: 'not_found', message: 'Font not found' } });
+      }
+      fonts.set(file, bytes);
+    }
+    return reply
+      .header('content-type', 'font/woff2')
+      .header('x-content-type-options', 'nosniff')
+      .header('cache-control', 'public, max-age=604800')
+      .send(bytes);
+  });
+
   app.get('/ui.css', async (_req, reply) =>
     reply.header('content-type', 'text/css; charset=utf-8').header('cache-control', 'no-store').send(await page('ui.css')));
   app.get('/admin/login', serve('login.html'));

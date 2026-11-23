@@ -225,6 +225,16 @@ describe('admin UI sessions', () => {
     for (const body of [home.body, docs.body]) expect(body).not.toMatch(/\bSES\b|amazon|aws/i);
   });
 
+  it('serves the self-hosted brand fonts as bytes, and nothing else from /fonts', async () => {
+    const font = await app.inject({ method: 'GET', url: '/fonts/fraunces.woff2' });
+    expect(font.statusCode).toBe(200);
+    expect(font.headers['content-type']).toBe('font/woff2');
+    expect(font.rawPayload.subarray(0, 4).toString('latin1')).toBe('wOF2');
+    for (const url of ['/fonts/..%2Fpackage.json', '/fonts/fraunces-OFL.txt', '/fonts/missing.woff2']) {
+      expect((await app.inject({ method: 'GET', url })).statusCode, url).toBe(404);
+    }
+  });
+
   it('rejects a wrong token and locks out after repeated failures', async () => {
     const bad = await app.inject({ method: 'POST', url: '/admin/auth/login', payload: { token: 'nope' } });
     expect(bad.statusCode).toBe(401);

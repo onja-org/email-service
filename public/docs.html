@@ -5,8 +5,45 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pigeon developer guide</title>
 <meta name="description" content="Send transactional email from Node.js, Python and Go with Pigeon: one HTTPS call, no SDK.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23c8361d'/%3E%3Cpath fill='%23fbf7ee' d='M6 41l12-6c6-4 11-7 17-12 0-7 5-12 11-12 4 0 7 3 7 6l6 2-6 2c-1 2-2 4-1 7 3 6 1 13-7 17-8 4-19 4-27 1z'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/ui.css">
+<link rel="preload" href="/fonts/instrument-sans.woff2" as="font" type="font/woff2" crossorigin>
 <style>
+  /* ---- Pigeon brand: same type and palette as the home page (fonts self-hosted, SIL OFL) ---- */
+  @font-face { font-family: "Fraunces"; src: url(/fonts/fraunces.woff2) format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
+  @font-face { font-family: "Fraunces"; src: url(/fonts/fraunces-italic.woff2) format("woff2"); font-weight: 100 900; font-style: italic; font-display: swap; }
+  @font-face { font-family: "Instrument Sans"; src: url(/fonts/instrument-sans.woff2) format("woff2"); font-weight: 400 700; font-style: normal; font-display: swap; }
+  @font-face { font-family: "IBM Plex Mono"; src: url(/fonts/plex-mono-400.woff2) format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+  @font-face { font-family: "IBM Plex Mono"; src: url(/fonts/plex-mono-500.woff2) format("woff2"); font-weight: 500 700; font-style: normal; font-display: swap; }
+  :root {
+    --page: #f3ede0; --surface: #fbf7ee; --ink: #1c1a16; --ink-2: #4b463c; --muted: #6f685a;
+    --grid: rgba(28,26,22,.12); --border: rgba(28,26,22,.15); --wash: rgba(200,54,29,.06);
+    --accent: #c8361d; --post-text: #a92c17; --air: #23408e; --neck: #1d7559;
+    --display: "Fraunces", Georgia, serif; --brand-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --page: #17150f; --surface: #221f18; --ink: #f1eadb; --ink-2: #cbc2ad; --muted: #9d947f;
+      --grid: rgba(241,234,219,.12); --border: rgba(241,234,219,.15); --wash: rgba(240,122,95,.08);
+      --accent: #c8361d; --post-text: #f07a5f; --air: #8ea6ec; --neck: #5cc39a;
+    }
+  }
+  html, body { font-family: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif; }
+  code, pre, .code-head .file, .status-flow { font-family: var(--brand-mono) !important; }
+  .airmail-bar { height: 6px; background: repeating-linear-gradient(-45deg, #c8361d 0 14px, var(--page) 14px 22px, var(--air) 22px 36px, var(--page) 36px 44px); }
+  .topbar .brandlink { display: inline-flex; align-items: center; gap: 8px; color: var(--ink); }
+  .topbar .brandlink svg { width: 32px; height: 32px; }
+  .topbar h1 { font-family: var(--display); font-weight: 600; font-size: 24px; letter-spacing: -0.02em; font-variation-settings: "SOFT" 100, "WONK" 1, "opsz" 48; }
+  .hero h1, article h2 { font-family: var(--display); font-weight: 540; letter-spacing: -0.02em; font-variation-settings: "SOFT" 50, "opsz" 72; }
+  .hero h1 { font-size: 40px; line-height: 1.05; }
+  article h2 { font-size: 27px; }
+  .toc .label { font-family: var(--brand-mono); letter-spacing: .12em; }
+  .toc a.active { box-shadow: inset 2px 0 0 var(--accent); }
+  .signin { border-radius: 3px; box-shadow: 2px 2px 0 var(--ink); }
+  .callout { border-radius: 0; }
+  .code, .base, .tabs, .status-flow { border-radius: 3px; }
+  .tabs button { border-radius: 2px; }
+  a { text-decoration-color: var(--accent); }
   main { max-width: 1180px; }
   .layout { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 32px; align-items: start; }
   .toc { position: sticky; top: 16px; font-size: 13px; }
@@ -72,9 +109,10 @@
 </style>
 </head>
 <body data-lang="node">
+<div class="airmail-bar" aria-hidden="true"></div>
 <main>
   <div class="topbar">
-    <a href="/" class="brandlink"><h1>Pigeon</h1></a>
+    <a href="/" class="brandlink" aria-label="Pigeon home"><svg viewBox="0 0 64 64" aria-hidden="true"><path fill="currentColor" d="M6 41l12-6c6-4 11-7 17-12 0-7 5-12 11-12 4 0 7 3 7 6l6 2-6 2c-1 2-2 4-1 7 3 6 1 13-7 17-8 4-19 4-27 1z"/><path fill="var(--neck)" d="M35 23c3 4 9 6 16 4-1-3-1-5 1-8-6 2-12 3-17 4z"/><circle cx="48" cy="15.5" r="1.9" fill="var(--page)"/><path d="M34 50l-1 7m10-8l1 8m-14 0h6m8 0h6" stroke="#c8361d" stroke-width="2" stroke-linecap="round" fill="none"/></svg><h1>Pigeon</h1></a>
     <span class="sub">Developer guide</span>
     <span class="spacer"></span>
     <a class="signin" id="signin" href="/admin/login">Sign in</a>
