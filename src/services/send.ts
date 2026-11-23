@@ -1,11 +1,12 @@
-import type { Db } from '../lib/db.js';
+import { withTransaction, type Db } from '../lib/db.js';
+import { prepareAttachments, type AttachmentInput, type PreparedAttachment } from '../lib/attachments.js';
 import { badRequest, forbidden } from '../lib/errors.js';
 import { invalidAddresses, isAllowedSender, parseAddress, parseAddressList } from '../lib/email.js';
 import type { AuthContext } from './projects.js';
 import type { Queue } from './queue.js';
 import { getTemplate, renderTemplate } from './templates.js';
 import { findSuppressed } from './suppression.js';
-import { insertMessage, type MessageRow } from './messages.js';
+import { insertAttachments, insertMessage, type MessageRow } from './messages.js';
 
 export interface SendInput {
   from: string;
@@ -20,6 +21,7 @@ export interface SendInput {
   template_data?: Record<string, unknown>;
   headers?: Record<string, string>;
   tags?: Record<string, string>;
+  attachments?: AttachmentInput[];
   idempotency_key?: string;
 }
 
@@ -38,6 +40,7 @@ export interface PreparedEmail {
   replyTo: string[];
   headers: Record<string, string>;
   tags: Record<string, string>;
+  attachments: PreparedAttachment[];
 }
 
 /**
@@ -98,6 +101,7 @@ export function prepareEmail(input: SendInput, auth: AuthContext): PreparedEmail
     replyTo: parseAddressList(input.reply_to).map((a) => a.raw),
     headers,
     tags: input.tags ?? {},
+    attachments: prepareAttachments(input.attachments),
   };
 }
 
@@ -147,23 +151,29 @@ export async function submitEmail(
 
   const status = to.length === 0 ? 'suppressed' : 'queued';
 
-  const { message, created } = await insertMessage(deps.db, {
-    projectId: auth.project.id,
-    idempotencyKey: input.idempotency_key,
-    status,
-    from: prepared.from,
-    replyTo: prepared.replyTo,
-    to,
-    cc,
-    bcc,
-    suppressed,
-    subject,
-    html,
-    text,
-    templateName: input.template,
-    templateData: input.template_data,
-    headers: prepared.headers,
-    tags: prepared.tags,
+  // One transaction: the worker must never claim a message whose attachments are
+  // not committed yet. On an idempotent replay nothing new is inserted.
+  const { message, created } = await withTransaction(deps.db, async (tx) => {
+    const res = await insertMessage(tx, {
+      projectId: auth.project.id,
+      idempotencyKey: input.idempotency_key,
+      status,
+      from: prepared.from,
+      replyTo: prepared.replyTo,
+      to,
+      cc,
+      bcc,
+      suppressed,
+      subject,
+      html,
+      text,
+      templateName: input.template,
+      templateData: input.template_data,
+      headers: prepared.headers,
+      tags: prepared.tags,
+    });
+    if (res.created) await insertAttachments(tx, res.message.id, prepared.attachments);
+    return res;
   });
 
   if (created && status === 'queued') {

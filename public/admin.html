@@ -263,6 +263,7 @@
         kv([
           ['Status', statusChip(m.status)], ['From', m.from], ['To', m.to.join(', ')], ['Cc', m.cc.join(', ')], ['Bcc', m.bcc.join(', ')],
           ['Suppressed', m.suppressed_recipients.join(', ')], ['Reply-to', m.reply_to.join(', ')], ['Subject', m.subject],
+          ['Attachments', (m.attachments || []).map((a) => `${a.filename} (${a.size < 1024 ? `${a.size} B` : `${Math.ceil(a.size / 1024)} KB`}${a.content_id ? `, inline cid:${a.content_id}` : ''})`).join(', ')],
           ['Template', m.template], ['Tags', Object.entries(m.tags).map(([k, v]) => `${k}=${v}`).join(', ')],
           ['Idempotency key', m.idempotency_key], ['Attempts', String(m.attempts)], ['Last error', m.last_error],
           ['SES message id', m.ses_message_id], ['Created', fmt(m.created_at)], ['Sent', fmt(m.sent_at)],

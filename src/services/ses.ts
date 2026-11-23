@@ -9,9 +9,11 @@ import {
   SendEmailCommand,
   SESv2Client,
   SESv2ServiceException,
+  type Attachment,
   type EventType,
 } from '@aws-sdk/client-sesv2';
 import type { Config } from '../config.js';
+import type { PreparedAttachment } from '../lib/attachments.js';
 import { HttpError } from '../lib/errors.js';
 
 export interface OutgoingEmail {
@@ -27,6 +29,19 @@ export interface OutgoingEmail {
   configurationSet: string;
   /** Tags appear in SES events, used to correlate events back to our message id. */
   tags: Record<string, string>;
+  attachments?: PreparedAttachment[];
+}
+
+/** Maps our attachments onto SESv2 Simple-content attachments (SES builds the MIME). */
+export function toSesAttachments(attachments: PreparedAttachment[] | undefined): Attachment[] | undefined {
+  if (!attachments?.length) return undefined;
+  return attachments.map((a) => ({
+    FileName: a.filename,
+    RawContent: a.content,
+    ContentType: a.contentType,
+    ContentTransferEncoding: 'BASE64',
+    ...(a.contentId ? { ContentDisposition: 'INLINE', ContentId: a.contentId } : { ContentDisposition: 'ATTACHMENT' }),
+  }));
 }
 
 export interface SendResult {
@@ -91,7 +106,8 @@ export function createSesService(cfg: Config, log: { info: (o: unknown, m?: stri
 
   async function send(email: OutgoingEmail): Promise<SendResult> {
     if (cfg.SES_DRY_RUN) {
-      log.info({ dryRun: true, to: email.to, subject: email.subject, from: email.from }, 'SES dry run');
+      const attachments = email.attachments?.map((a) => ({ filename: a.filename, size: a.content.length }));
+      log.info({ dryRun: true, to: email.to, subject: email.subject, from: email.from, attachments }, 'SES dry run');
       return { sesMessageId: `dry-run-${crypto.randomUUID()}` };
     }
     try {
@@ -112,6 +128,7 @@ export function createSesService(cfg: Config, log: { info: (o: unknown, m?: stri
               ...(Object.keys(email.headers).length
                 ? { Headers: Object.entries(email.headers).map(([Name, Value]) => ({ Name, Value })) }
                 : {}),
+              ...(email.attachments?.length ? { Attachments: toSesAttachments(email.attachments) } : {}),
             },
           },
         }),

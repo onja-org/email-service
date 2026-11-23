@@ -110,11 +110,14 @@ curl -s -X POST $BASE/v1/emails -H "Authorization: Bearer es_live_..." -H 'conte
   "html": "<p>Hi Ada, your invoice is attached…</p>",
   "text": "Hi Ada, your invoice is attached…",
   "tags": {"invoice": "42"},
+  "attachments": [{"filename": "invoice-42.pdf", "content": "JVBERi0xLjQK..."}],
   "idempotency_key": "invoice-42-sent"
 }'
 ```
 
 Response `202` with `{"id": "...", "status": "queued", ...}`. Repeating the same `idempotency_key` returns `200` with the original message instead of sending twice.
+
+**Attachments**: `attachments` is an optional array of `{filename, content (base64), content_type?, content_id?}`, with up to 10 files and 10 MB total (decoded). Add `content_id` to make a file an inline image, referenced as `<img src="cid:...">`. Without `content_type`, the service infers it from the extension. File types that SES refuses (`.exe`, `.js`, …) are rejected with `400 blocked_attachment_type` before anything is queued. The bytes live in the `message_attachments` table (bytea), are written in the same transaction as the message, and go to SES as native SESv2 `Simple.Attachments`. `POST /v1/emails` has a 25 MB body limit, while the rest of the API keeps the default 10 MB.
 
 With a template:
 

@@ -4,7 +4,15 @@ import { z } from 'zod';
 import { requireApiKey } from '../lib/auth.js';
 import { notFound } from '../lib/errors.js';
 import { submitEmail } from '../services/send.js';
-import { getMessage, listEvents, listMessages, type MessageRow } from '../services/messages.js';
+import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS } from '../lib/attachments.js';
+import {
+  getMessage,
+  listAttachmentMeta,
+  listEvents,
+  listMessages,
+  type AttachmentMeta,
+  type MessageRow,
+} from '../services/messages.js';
 
 const addressList = z.array(z.string().min(3).max(320)).max(50);
 
@@ -14,6 +22,20 @@ const tagsSchema = z
   .record(tagToken, tagToken)
   .refine((t) => Object.keys(t).length <= 48, { message: 'At most 48 tags' })
   .refine((t) => !Object.keys(t).some((k) => k.startsWith('emailsvc_')), { message: 'Tag names starting with "emailsvc_" are reserved' });
+
+const attachmentSchema = z.object({
+  filename: z.string().min(1).max(255),
+  // Base64. Sizes are enforced on the decoded bytes in prepareAttachments.
+  content: z.string().min(1).max(Math.ceil((MAX_ATTACHMENT_BYTES * 4) / 3) + 1_000_000),
+  content_type: z.string().max(255).optional(),
+  content_id: z.string().max(102).optional(),
+});
+
+/**
+ * POST /emails carries base64 attachments (≤10 MB decoded ≈ 13.7 MB encoded) on top
+ * of html/text bodies, so it gets a larger body limit than the rest of the API.
+ */
+const SEND_BODY_LIMIT = 25 * 1024 * 1024;
 
 export const sendBodySchema = z.object({
   from: z.string().min(3).max(320),
@@ -28,6 +50,7 @@ export const sendBodySchema = z.object({
   template_data: z.record(z.unknown()).optional(),
   headers: z.record(z.string().max(1000)).optional(),
   tags: tagsSchema.optional(),
+  attachments: z.array(attachmentSchema).max(MAX_ATTACHMENTS).optional(),
   idempotency_key: z.string().min(1).max(255).optional(),
 });
 
@@ -41,7 +64,7 @@ const listQuerySchema = z.object({
 });
 
 /** Public representation of a message: omits bodies by default to keep lists small. */
-export function serializeMessage(m: MessageRow, includeBody = false) {
+export function serializeMessage(m: MessageRow, includeBody = false, attachments?: AttachmentMeta[]) {
   return {
     id: m.id,
     status: m.status,
@@ -62,6 +85,16 @@ export function serializeMessage(m: MessageRow, includeBody = false) {
     sent_at: m.sent_at,
     updated_at: m.updated_at,
     ...(includeBody ? { html: m.html, text: m.text, headers: m.headers, template_data: m.template_data } : {}),
+    ...(attachments
+      ? {
+          attachments: attachments.map((a) => ({
+            filename: a.filename,
+            content_type: a.content_type,
+            content_id: a.content_id,
+            size: a.size_bytes,
+          })),
+        }
+      : {}),
   };
 }
 
@@ -69,7 +102,7 @@ export const emailRoutes: FastifyPluginAsync = async (instance) => {
   const app = instance.withTypeProvider<ZodTypeProvider>();
   app.addHook('preValidation', requireApiKey);
 
-  app.post('/emails', { schema: { body: sendBodySchema } }, async (req, reply) => {
+  app.post('/emails', { bodyLimit: SEND_BODY_LIMIT, schema: { body: sendBodySchema } }, async (req, reply) => {
     const { message, created } = await submitEmail({ db: app.db, queue: app.queue }, req.auth!, req.body);
     req.log.info(
       { messageId: message.id, status: message.status, to: message.to_addresses.length, created },
@@ -89,7 +122,7 @@ export const emailRoutes: FastifyPluginAsync = async (instance) => {
   app.get('/emails/:id', { schema: { params: z.object({ id: z.string().uuid() }) } }, async (req) => {
     const m = await getMessage(app.db, req.params.id, req.auth!.project.id);
     if (!m) throw notFound('Email');
-    return serializeMessage(m, true);
+    return serializeMessage(m, true, await listAttachmentMeta(app.db, m.id));
   });
 
   app.get('/emails/:id/events', { schema: { params: z.object({ id: z.string().uuid() }) } }, async (req) => {

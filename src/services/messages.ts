@@ -1,3 +1,4 @@
+import type { PreparedAttachment } from '../lib/attachments.js';
 import type { Queryable } from '../lib/db.js';
 
 export type MessageStatus =
@@ -96,6 +97,48 @@ export async function insertMessage(
     [m.projectId, m.idempotencyKey],
   );
   return { message: existing.rows[0], created: false };
+}
+
+/** Attachment metadata, as shown by the API (never the bytes). */
+export interface AttachmentMeta {
+  filename: string;
+  content_type: string | null;
+  content_id: string | null;
+  size_bytes: number;
+}
+
+export async function insertAttachments(db: Queryable, messageId: string, attachments: PreparedAttachment[]): Promise<void> {
+  for (const [position, a] of attachments.entries()) {
+    await db.query(
+      `INSERT INTO message_attachments (message_id, position, filename, content_type, content_id, size_bytes, content)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [messageId, position, a.filename, a.contentType, a.contentId ?? null, a.content.length, a.content],
+    );
+  }
+}
+
+/** Full attachments including content, for the worker. */
+export async function loadAttachments(db: Queryable, messageId: string): Promise<PreparedAttachment[]> {
+  const { rows } = await db.query<{ filename: string; content_type: string | null; content_id: string | null; content: Buffer }>(
+    `SELECT filename, content_type, content_id, content FROM message_attachments
+     WHERE message_id = $1 ORDER BY position`,
+    [messageId],
+  );
+  return rows.map((r) => ({
+    filename: r.filename,
+    contentType: r.content_type ?? 'application/octet-stream',
+    contentId: r.content_id ?? undefined,
+    content: r.content,
+  }));
+}
+
+export async function listAttachmentMeta(db: Queryable, messageId: string): Promise<AttachmentMeta[]> {
+  const { rows } = await db.query<AttachmentMeta>(
+    `SELECT filename, content_type, content_id, size_bytes FROM message_attachments
+     WHERE message_id = $1 ORDER BY position`,
+    [messageId],
+  );
+  return rows;
 }
 
 export async function getMessage(db: Queryable, id: string, projectId?: string): Promise<MessageRow | null> {

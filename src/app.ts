@@ -43,7 +43,7 @@ export async function buildApp(deps: AppDeps, opts: { fullApi: boolean }) {
   const app = Fastify({
     loggerInstance: deps.log,
     trustProxy: true,
-    bodyLimit: 10 * 1024 * 1024, // 10 MB: SES max message size is 40 MB, HTML bodies are far smaller
+    bodyLimit: 10 * 1024 * 1024, // 10 MB default; POST /v1/emails raises it for base64 attachments
     genReqId: () => crypto.randomUUID(),
   }).withTypeProvider<ZodTypeProvider>();
 

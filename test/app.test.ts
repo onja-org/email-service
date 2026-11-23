@@ -40,6 +40,7 @@ const suppressions = new Map<string, { email: string; reason: string; project_id
   ['own-manual@example.com', { email: 'own-manual@example.com', reason: 'manual', project_id: project.id }],
 ]);
 const inserted: Record<string, unknown>[] = [];
+const attachmentRows: { message_id: string; position: number; filename: string; content_type: string; content_id: string | null; size_bytes: number; content: Buffer }[] = [];
 const enqueued: SendJob[] = [];
 
 /** Tiny SQL-pattern router standing in for pg. */
@@ -47,6 +48,7 @@ const fakeDb = {
   async query(sql: string, params: unknown[] = []) {
     const s = sql.replace(/\s+/g, ' ');
     if (s === 'SELECT 1') return { rows: [{ '?column?': 1 }], rowCount: 1 };
+    if (s === 'BEGIN' || s === 'COMMIT' || s === 'ROLLBACK') return { rows: [], rowCount: 0 };
     if (s.includes('FROM api_keys k')) {
       return params[0] === key.hash
         ? { rows: [{ ...project, api_key_id: 'k1', domains: ['billing.example.com'] }], rowCount: 1 }
@@ -68,6 +70,9 @@ const fakeDb = {
       return { rows: row ? [row] : [], rowCount: row ? 1 : 0 };
     }
     if (s.startsWith('INSERT INTO messages')) {
+      if (params[1] && inserted.some((m) => m.project_id === params[0] && m.idempotency_key === params[1])) {
+        return { rows: [], rowCount: 0 }; // ON CONFLICT DO NOTHING
+      }
       const row = {
         id: `00000000-0000-0000-0000-${String(inserted.length + 1).padStart(12, '0')}`,
         project_id: params[0],
@@ -96,11 +101,30 @@ const fakeDb = {
       inserted.push(row);
       return { rows: [row], rowCount: 1 };
     }
+    if (s.startsWith('SELECT * FROM messages WHERE project_id = $1 AND idempotency_key = $2')) {
+      const row = inserted.find((m) => m.project_id === params[0] && m.idempotency_key === params[1]);
+      return { rows: row ? [row] : [], rowCount: row ? 1 : 0 };
+    }
+    if (s.startsWith('INSERT INTO message_attachments')) {
+      const [message_id, position, filename, content_type, content_id, size_bytes, content] = params as [string, number, string, string, string | null, number, Buffer];
+      attachmentRows.push({ message_id, position, filename, content_type, content_id, size_bytes, content });
+      return { rows: [], rowCount: 1 };
+    }
+    if (s.startsWith('SELECT filename, content_type, content_id, size_bytes FROM message_attachments')) {
+      const rows = attachmentRows
+        .filter((a) => a.message_id === params[0])
+        .map(({ filename, content_type, content_id, size_bytes }) => ({ filename, content_type, content_id, size_bytes }));
+      return { rows, rowCount: rows.length };
+    }
     if (s.startsWith('SELECT * FROM messages WHERE id = $1')) {
       const row = inserted.find((m) => m.id === params[0] && m.project_id === params[1]);
       return { rows: row ? [row] : [], rowCount: row ? 1 : 0 };
     }
     throw new Error(`fakeDb: unexpected query: ${s}`);
+  },
+  /** withTransaction checks out a client; the fake has no real transactions. */
+  async connect() {
+    return { query: fakeDb.query, release() {} };
   },
 } as unknown as Db;
 
@@ -239,6 +263,76 @@ describe('POST /v1/emails', () => {
     const detail = await app.inject({ method: 'GET', url: `/v1/emails/${body.id}`, headers: auth });
     expect(detail.statusCode).toBe(200);
     expect(detail.json().text).toBe('Hi');
+  });
+
+  it('stores attachments, reports their metadata, and does not duplicate them on a replay', async () => {
+    const pdf = Buffer.from('%PDF-1.4 invoice');
+    const payload = {
+      ...validBody,
+      html: '<p>Invoice attached <img src="cid:logo"></p>',
+      idempotency_key: 'attach-1',
+      attachments: [
+        { filename: 'invoice.pdf', content: pdf.toString('base64') },
+        { filename: 'logo.png', content: Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('base64'), content_id: 'logo' },
+      ],
+    };
+    const res = await app.inject({ method: 'POST', url: '/v1/emails', headers: auth, payload });
+    expect(res.statusCode).toBe(202);
+    const id = res.json().id;
+    const stored = attachmentRows.filter((a) => a.message_id === id);
+    expect(stored.map((a) => [a.position, a.filename, a.content_type, a.content_id])).toEqual([
+      [0, 'invoice.pdf', 'application/pdf', null],
+      [1, 'logo.png', 'image/png', 'logo'],
+    ]);
+    expect(stored[0].content.equals(pdf)).toBe(true);
+
+    const replay = await app.inject({ method: 'POST', url: '/v1/emails', headers: auth, payload });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json()).toMatchObject({ id, idempotent_replay: true });
+    expect(attachmentRows.filter((a) => a.message_id === id)).toHaveLength(2);
+
+    const detail = await app.inject({ method: 'GET', url: `/v1/emails/${id}`, headers: auth });
+    expect(detail.json().attachments).toEqual([
+      { filename: 'invoice.pdf', content_type: 'application/pdf', content_id: null, size: pdf.length },
+      { filename: 'logo.png', content_type: 'image/png', content_id: 'logo', size: 4 },
+    ]);
+  });
+
+  it('rejects attachments SES would refuse before queueing anything', async () => {
+    const before = enqueued.length;
+    const send = (attachments: unknown[]) =>
+      app.inject({ method: 'POST', url: '/v1/emails', headers: auth, payload: { ...validBody, attachments } });
+
+    const blocked = await send([{ filename: 'setup.exe', content: 'TVqQ' }]);
+    expect(blocked.statusCode).toBe(400);
+    expect(blocked.json().error.code).toBe('blocked_attachment_type');
+
+    const dataUri = await send([{ filename: 'a.png', content: 'data:image/png;base64,iVBORw0KGgo=' }]);
+    expect(dataUri.json().error.code).toBe('invalid_attachment');
+
+    const tooMany = await send(Array.from({ length: 11 }, (_, i) => ({ filename: `f${i}.txt`, content: 'aGk=' })));
+    expect(tooMany.json().error.code).toBe('validation_error');
+    expect(enqueued.length).toBe(before);
+  });
+
+  it('accepts request bodies above the default 10 MB limit on POST /v1/emails', async () => {
+    const big = Buffer.alloc(9 * 1024 * 1024, 1).toString('base64'); // ~12 MB encoded
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/emails',
+      headers: auth,
+      payload: { ...validBody, attachments: [{ filename: 'data.bin', content: big }] },
+    });
+    expect(res.statusCode).toBe(202);
+
+    const tooBig = Buffer.alloc(11 * 1024 * 1024, 1).toString('base64');
+    const res2 = await app.inject({
+      method: 'POST',
+      url: '/v1/emails',
+      headers: auth,
+      payload: { ...validBody, attachments: [{ filename: 'data.bin', content: tooBig }] },
+    });
+    expect(res2.statusCode).toBe(400);
   });
 
   it('returns 400 with validation details for a malformed body', async () => {

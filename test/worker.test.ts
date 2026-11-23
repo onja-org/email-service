@@ -44,7 +44,7 @@ function row(over: Partial<MessageRow>): MessageRow {
 }
 
 /** Minimal state machine standing in for the messages table. */
-function fakeDb(initial: MessageRow) {
+function fakeDb(initial: MessageRow, attachments: { filename: string; content_type: string; content_id: string | null; content: Buffer }[] = []) {
   let m = initial;
   const calls: string[] = [];
   const db = {
@@ -59,6 +59,7 @@ function fakeDb(initial: MessageRow) {
       }
       if (s.startsWith('SELECT * FROM messages WHERE id = $1')) return { rows: [m], rowCount: 1 };
       if (s.startsWith('SELECT config_set, slug FROM projects')) return { rows: [project], rowCount: 1 };
+      if (s.includes('FROM message_attachments')) return { rows: attachments, rowCount: attachments.length };
       if (s.includes("THEN 'sent'")) {
         m = { ...m, status: m.status === 'sending' ? 'sent' : m.status, ses_message_id: 'ses-1', sent_at: new Date() };
         return { rows: [], rowCount: 1 };
@@ -113,6 +114,25 @@ describe('worker.processJob', () => {
     expect(current().status).toBe('sent');
     expect(q.acked).toEqual([m.id]);
     expect(q.retried).toEqual([]);
+  });
+
+  it('loads stored attachments and passes them to SES', async () => {
+    const m = row({});
+    const pdf = Buffer.from('%PDF-1.4 fake');
+    const { db } = fakeDb(m, [
+      { filename: 'invoice.pdf', content_type: 'application/pdf', content_id: null, content: pdf },
+      { filename: 'logo.png', content_type: 'image/png', content_id: 'logo', content: Buffer.from([0x89, 0x50]) },
+    ]);
+    const q = fakeQueue();
+    const ses = { send: vi.fn(async () => ({ sesMessageId: 'ses-1' })) } as unknown as SesService;
+
+    await runOnce(db, q, ses, job(m.id));
+
+    const sent = (ses.send as ReturnType<typeof vi.fn>).mock.calls[0][0] as { attachments: unknown[] };
+    expect(sent.attachments).toEqual([
+      { filename: 'invoice.pdf', contentType: 'application/pdf', contentId: undefined, content: pdf },
+      { filename: 'logo.png', contentType: 'image/png', contentId: 'logo', content: Buffer.from([0x89, 0x50]) },
+    ]);
   });
 
   it('keeps the job (hidden for > the lease) when another worker is mid-send', async () => {

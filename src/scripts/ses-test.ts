@@ -10,6 +10,8 @@
  *   --subject <text>        default "email-service test"
  *   --config-set <name>     optional SES configuration set (e.g. emailsvc-billing)
  *   --region <region>       default AWS_REGION
+ *   --attach <path>[,<path>]  attach files (same validation and SES mapping as the API)
+ *   --inline <path>         embed an image inline (cid:inline) in the HTML body
  *   --dry                   run the preflight checks only, send nothing
  */
 import {
@@ -19,6 +21,10 @@ import {
   SESv2Client,
   SESv2ServiceException,
 } from '@aws-sdk/client-sesv2';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { prepareAttachments, type AttachmentInput } from '../lib/attachments.js';
+import { toSesAttachments } from '../services/ses.js';
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -31,6 +37,18 @@ const from = arg('from');
 const to = (arg('to') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 const subject = arg('subject') ?? 'email-service test';
 const configSet = arg('config-set');
+const fileInput = (p: string, contentId?: string): AttachmentInput => ({
+  filename: path.basename(p),
+  content: readFileSync(p).toString('base64'),
+  ...(contentId ? { content_id: contentId } : {}),
+});
+const attachPaths = (arg('attach') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+const inlinePath = arg('inline');
+// Validates exactly like POST /v1/emails, so a blocked type fails here, not at SES.
+const attachments = prepareAttachments([
+  ...attachPaths.map((p) => fileInput(p)),
+  ...(inlinePath ? [fileInput(inlinePath, 'inline')] : []),
+]);
 
 if (!region || !from || to.length === 0) {
   console.error('usage: npm run ses:test -- --from <address> --to <address>[,<address>] [--region r] [--config-set name] [--dry]');
@@ -90,12 +108,19 @@ async function main() {
         Subject: { Data: subject, Charset: 'UTF-8' },
         Body: {
           Text: { Data: `This is a test from email-service.\nRegion: ${region}\nSent: ${new Date().toISOString()}`, Charset: 'UTF-8' },
-          Html: { Data: `<p>This is a test from <b>email-service</b>.</p><p>Region: ${region}<br>Sent: ${new Date().toISOString()}</p>`, Charset: 'UTF-8' },
+          Html: {
+            Data:
+              `<p>This is a test from <b>email-service</b>.</p><p>Region: ${region}<br>Sent: ${new Date().toISOString()}</p>` +
+              (inlinePath ? '<p>Inline image:<br><img src="cid:inline" alt="inline test image"></p>' : ''),
+            Charset: 'UTF-8',
+          },
         },
+        ...(attachments.length ? { Attachments: toSesAttachments(attachments) } : {}),
       },
     },
   }));
   console.log(`\nSent. SES MessageId: ${out.MessageId}`);
+  if (attachments.length) console.log(`Attachments: ${attachments.map((a) => `${a.filename} (${a.contentType}, ${a.content.length} B${a.contentId ? ', inline' : ''})`).join('; ')}`);
   console.log('Check the inbox (and spam folder). Headers should show DKIM=pass for the sender domain.');
 }
 

@@ -16,7 +16,7 @@ import {
   revokeApiKey,
 } from '../services/projects.js';
 import { addSuppression, getSuppression, listSuppressions, removeSuppression } from '../services/suppression.js';
-import { getMessage, listEvents, listMessages } from '../services/messages.js';
+import { getMessage, listAttachmentMeta, listEvents, listMessages } from '../services/messages.js';
 import { listTemplates } from '../services/templates.js';
 import { parseAddress } from '../lib/email.js';
 import { serializeMessage } from './emails.js';
@@ -159,7 +159,10 @@ export const adminRoutes: FastifyPluginAsync = async (instance) => {
   app.get('/emails/:id', { schema: { params: z.object({ id: z.string().uuid() }) } }, async (req) => {
     const m = await getMessage(app.db, req.params.id);
     if (!m) throw notFound('Email');
-    return { ...serializeMessage(m, true), events: await listEvents(app.db, m.id) };
+    return {
+      ...serializeMessage(m, true, await listAttachmentMeta(app.db, m.id)),
+      events: await listEvents(app.db, m.id),
+    };
   });
 
   app.get('/projects/:slug/templates', { schema: { params: slugParam } }, async (req) => {

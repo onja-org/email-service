@@ -86,6 +86,7 @@
         <li><a href="#before">Before you start</a></li>
         <li><a href="#client">Set up a client</a></li>
         <li><a href="#send">Send an email</a></li>
+        <li><a href="#attachments">Attachments</a></li>
         <li><a href="#response">Read the response</a></li>
         <li><a href="#retries">Retries and idempotency</a></li>
         <li><a href="#templates">Templates</a></li>
@@ -310,7 +311,16 @@ type SendRequest struct {
 	TemplateData   map[string]any    `json:"template_data,omitempty"`
 	Headers        map[string]string `json:"headers,omitempty"`
 	Tags           map[string]string `json:"tags,omitempty"`
+	Attachments    []Attachment      `json:"attachments,omitempty"`
 	IdempotencyKey string            `json:"idempotency_key,omitempty"`
+}
+
+// Content is a []byte, which encoding/json sends as base64: exactly what the API expects.
+type Attachment struct {
+	Filename    string `json:"filename"`
+	Content     []byte `json:"content"`
+	ContentType string `json:"content_type,omitempty"`
+	ContentID   string `json:"content_id,omitempty"`
 }
 
 type Email struct {
@@ -328,6 +338,13 @@ type Email struct {
 	CreatedAt            time.Time         `json:"created_at"`
 	SentAt               *time.Time        `json:"sent_at"`
 	IdempotentReplay     bool              `json:"idempotent_replay"`
+	// Only on GET /v1/emails/:id. Metadata only: the content is never returned.
+	Attachments []struct {
+		Filename    string `json:"filename"`
+		ContentType string `json:"content_type"`
+		ContentID   string `json:"content_id"`
+		Size        int    `json:"size"`
+	} `json:"attachments,omitempty"`
 }
 
 func (c *Client) Send(ctx context.Context, msg SendRequest) (*Email, error) {
@@ -429,10 +446,110 @@ func main() {
               <tr><td><code>template</code>, <code>template_data</code></td><td>string, object</td><td>Render a stored template. See <a href="#templates">Templates</a>.</td></tr>
               <tr><td><code>tags</code></td><td>object</td><td>Up to 48 string pairs for your own reporting. Keys and values may contain only letters, digits, <code>_</code> and <code>-</code>. Keys may not start with <code>emailsvc_</code>.</td></tr>
               <tr><td><code>headers</code></td><td>object</td><td>Extra headers, such as <code>List-Unsubscribe</code>. You can't set <code>From</code>, <code>To</code>, <code>Bcc</code>, <code>Subject</code>, <code>Return-Path</code> or other routing headers here.</td></tr>
+              <tr><td><code>attachments</code></td><td>object[]</td><td>Optional, up to 10 files, 10 MB in total. Each has <code>filename</code> and base64 <code>content</code>. See <a href="#attachments">Attachments</a>.</td></tr>
               <tr><td><code>idempotency_key</code></td><td>string</td><td>Up to 255 characters. See <a href="#retries">Retries and idempotency</a>.</td></tr>
             </tbody>
           </table>
         </div>
+      </section>
+
+      <section id="attachments">
+        <h2>Attachments</h2>
+        <p>Add an <code>attachments</code> array to any email, including emails that use a template. Each file needs a <code>filename</code> and its <code>content</code> as a base64 string. The service stores the files with the email and sends them with it. Retries reuse the same files.</p>
+
+        <div class="code" data-lang="node">
+          <div class="code-head"><span class="file">send-with-attachment.js</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>import { readFile } from 'node:fs/promises';
+import { api } from './emailService.js';
+
+const pdf = await readFile('invoice-42.pdf');
+
+const email = await api('POST', '/v1/emails', {
+  from: 'Billing &lt;no-reply@billing.example.com&gt;',
+  to: ['ada@customer.com'],
+  subject: 'Your invoice #42',
+  text: 'Hi Ada, your invoice is attached.',
+  attachments: [
+    { filename: 'invoice-42.pdf', content: pdf.toString('base64') },
+  ],
+  idempotency_key: 'invoice-42-sent',
+});</code></pre>
+        </div>
+        <div class="code" data-lang="python">
+          <div class="code-head"><span class="file">send_with_attachment.py</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>import base64
+from email_service import api
+
+with open("invoice-42.pdf", "rb") as f:
+    pdf = base64.b64encode(f.read()).decode("ascii")
+
+email = api("POST", "/v1/emails", {
+    "from": "Billing &lt;no-reply@billing.example.com&gt;",
+    "to": ["ada@customer.com"],
+    "subject": "Your invoice #42",
+    "text": "Hi Ada, your invoice is attached.",
+    "attachments": [
+        {"filename": "invoice-42.pdf", "content": pdf},
+    ],
+    "idempotency_key": "invoice-42-sent",
+})</code></pre>
+        </div>
+        <div class="code" data-lang="go">
+          <div class="code-head"><span class="file">main.go</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>pdf, err := os.ReadFile("invoice-42.pdf")
+if err != nil {
+	log.Fatal(err)
+}
+
+// Pass the raw bytes: encoding/json turns a []byte into base64 for you.
+email, err := client.Send(ctx, emailservice.SendRequest{
+	From:    "Billing &lt;no-reply@billing.example.com&gt;",
+	To:      []string{"ada@customer.com"},
+	Subject: "Your invoice #42",
+	Text:    "Hi Ada, your invoice is attached.",
+	Attachments: []emailservice.Attachment{
+		{Filename: "invoice-42.pdf", Content: pdf},
+	},
+	IdempotencyKey: "invoice-42-sent",
+})</code></pre>
+        </div>
+
+        <h3>Attachment fields</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead>
+            <tbody>
+              <tr><td><code>filename</code></td><td>string</td><td><strong>Required.</strong> The name the recipient sees, up to 255 characters, with no slashes.</td></tr>
+              <tr><td><code>content</code></td><td>string</td><td><strong>Required.</strong> The file's bytes, base64-encoded. Send plain base64, not a <code>data:</code> URI. Line breaks in the base64 are fine.</td></tr>
+              <tr><td><code>content_type</code></td><td>string</td><td>Optional MIME type, such as <code>application/pdf</code>. If you leave it out, the service guesses from the file extension for common types (PDF, images, CSV, Office files, ZIP and others) and uses <code>application/octet-stream</code> for everything else.</td></tr>
+              <tr><td><code>content_id</code></td><td>string</td><td>Optional. Makes the file an inline image that your HTML shows with <code>&lt;img src="cid:<em>content_id</em>"&gt;</code>. Use letters, digits and <code>. _ @ $ + -</code>, up to 100 characters, unique within the email.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Inline images</h3>
+        <p>To show an image inside the HTML body instead of as a download, give it a <code>content_id</code> and refer to it with <code>cid:</code>:</p>
+        <div class="code" data-lang="shell">
+          <div class="code-head"><span class="file">request body</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>{
+  "from": "Billing &lt;no-reply@billing.example.com&gt;",
+  "to": ["ada@customer.com"],
+  "subject": "Welcome",
+  "html": "&lt;img src=\"cid:logo\" alt=\"Acme\"&gt;&lt;p&gt;Welcome aboard, Ada.&lt;/p&gt;",
+  "text": "Welcome aboard, Ada.",
+  "attachments": [
+    { "filename": "logo.png", "content": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4HyUPAAPUAXnNtuHVAAAAAElFTkSuQmCC", "content_id": "logo" }
+  ]
+}</code></pre>
+        </div>
+
+        <h3>Limits</h3>
+        <ul>
+          <li>Up to <strong>10 files</strong> per email.</li>
+          <li>Up to <strong>10 MB in total</strong>, measured before base64 encoding. Base64 adds about a third, so the request body can be around 14 MB. For bigger files, upload them somewhere and send a link instead.</li>
+          <li>Amazon SES refuses some file types, mostly executables and scripts such as <code>.exe</code>, <code>.bat</code>, <code>.cmd</code>, <code>.js</code>, <code>.vbs</code>, <code>.ps1</code>, <code>.msi</code> and <code>.scr</code>. The API rejects these straight away with <code>blocked_attachment_type</code>, so they never get queued. See the <a href="https://docs.aws.amazon.com/ses/latest/dg/mime-types.html" rel="noopener">full list of unsupported types</a>. Some mailbox providers also block archives such as <code>.zip</code> that contain executables.</li>
+        </ul>
+        <div class="callout"><p>The response from <code>POST /v1/emails</code> doesn't echo attachments. <code>GET /v1/emails/:id</code> lists each file's <code>filename</code>, <code>content_type</code>, <code>content_id</code> and <code>size</code> in bytes, but never the content.</p></div>
       </section>
 
       <section id="response">
@@ -747,7 +864,7 @@ for _, e := range events.Data {
 	fmt.Println(e.CreatedAt, e.EventType)
 }</code></pre>
         </div>
-        <p>The single-email response also includes the rendered <code>html</code>, <code>text</code>, <code>headers</code> and <code>template_data</code>, so you can see exactly what was sent.</p>
+        <p>The single-email response also includes the rendered <code>html</code>, <code>text</code>, <code>headers</code> and <code>template_data</code>, so you can see exactly what was sent, plus an <code>attachments</code> list with each file's name, type and size.</p>
       </section>
 
       <section id="list">
@@ -908,6 +1025,9 @@ if errors.As(err, &amp;apiErr) &amp;&amp; apiErr.Code == "invalid_recipient" {
               <tr><td>400</td><td><code>too_many_recipients</code></td><td>More than 50 addresses across <code>to</code>, <code>cc</code> and <code>bcc</code>.</td></tr>
               <tr><td>400</td><td><code>missing_subject</code>, <code>missing_body</code></td><td>No subject, or no <code>html</code> and no <code>text</code>, and no template.</td></tr>
               <tr><td>400</td><td><code>reserved_header</code>, <code>invalid_header</code></td><td>A header you can't set, or a malformed header name or value.</td></tr>
+              <tr><td>400</td><td><code>invalid_attachment</code></td><td>An attachment has a bad filename, <code>content_type</code> or <code>content_id</code>, or its <code>content</code> isn't valid base64. <code>details.index</code> says which one.</td></tr>
+              <tr><td>400</td><td><code>blocked_attachment_type</code></td><td>Amazon SES doesn't send that file type, for example <code>.exe</code> or <code>.js</code>.</td></tr>
+              <tr><td>400</td><td><code>too_many_attachments</code>, <code>attachments_too_large</code></td><td>More than 10 files, or more than 10 MB in total before base64 encoding.</td></tr>
               <tr><td>400</td><td><code>empty_template</code>, <code>template_syntax</code></td><td>The template renders to nothing, or doesn't compile when you save it.</td></tr>
               <tr><td>401</td><td><code>unauthorized</code></td><td>The API key is missing, malformed or revoked.</td></tr>
               <tr><td>403</td><td><code>sender_domain_not_allowed</code></td><td>The <code>from</code> domain isn't one of your project's domains.</td></tr>
@@ -928,7 +1048,7 @@ if errors.As(err, &amp;apiErr) &amp;&amp; apiErr.Code == "invalid_recipient" {
             <tbody>
               <tr><td><code>POST</code></td><td><code>/v1/emails</code></td><td>Queue an email. Returns <code>202</code>, or <code>200</code> on an idempotent replay.</td></tr>
               <tr><td><code>GET</code></td><td><code>/v1/emails</code></td><td>List emails. Query: <code>limit</code>, <code>before</code>, <code>status</code>, <code>to</code>.</td></tr>
-              <tr><td><code>GET</code></td><td><code>/v1/emails/:id</code></td><td>One email, with its body, attempts and last error.</td></tr>
+              <tr><td><code>GET</code></td><td><code>/v1/emails/:id</code></td><td>One email, with its body, attachment metadata, attempts and last error.</td></tr>
               <tr><td><code>GET</code></td><td><code>/v1/emails/:id/events</code></td><td>Delivery events for the email: delivery, bounce, complaint.</td></tr>
               <tr><td><code>GET</code></td><td><code>/v1/templates</code></td><td>List templates.</td></tr>
               <tr><td><code>GET</code> <code>PUT</code> <code>DELETE</code></td><td><code>/v1/templates/:name</code></td><td>Read, create or replace, or delete a template.</td></tr>

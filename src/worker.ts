@@ -7,6 +7,7 @@ import {
   claimForSending,
   findStale,
   getMessage,
+  loadAttachments,
   markFailed,
   markRetry,
   markSent,
@@ -84,6 +85,7 @@ export function createWorker(deps: WorkerDeps): Worker {
     }
 
     try {
+      const attachments = await loadAttachments(db, id);
       const { sesMessageId } = await ses.send({
         from: message.from_address,
         to: message.to_addresses,
@@ -97,6 +99,7 @@ export function createWorker(deps: WorkerDeps): Worker {
         configurationSet: project.config_set,
         // Ours last: the correlation tags must never be overridden by caller tags.
         tags: { ...message.tags, emailsvc_message_id: message.id, emailsvc_project: project.slug },
+        attachments,
       });
       await markSent(db, id, sesMessageId);
       await queue.ack(q);
