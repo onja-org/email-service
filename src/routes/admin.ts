@@ -16,12 +16,70 @@ import {
   revokeApiKey,
 } from '../services/projects.js';
 import { addSuppression, getSuppression, listSuppressions, removeSuppression } from '../services/suppression.js';
-import { getMessage, listAttachmentMeta, listEvents, listMessages } from '../services/messages.js';
+import {
+  getAttachment,
+  getMessage,
+  listAttachmentMeta,
+  listEvents,
+  listMessages,
+  loadInlineImages,
+} from '../services/messages.js';
+import {
+  attachmentDisposition,
+  buildPreview,
+  hasRemoteImages,
+  logStatusCounts,
+  previewCsp,
+  searchLog,
+  type LogRow,
+} from '../services/email-log.js';
 import { listTemplates } from '../services/templates.js';
 import { parseAddress } from '../lib/email.js';
 import { serializeMessage } from './emails.js';
 
 const slugParam = z.object({ slug: z.string().regex(/^[a-z0-9][a-z0-9-]{1,40}$/) });
+const STATUSES = ['queued', 'sending', 'sent', 'delivered', 'bounced', 'complained', 'suppressed', 'failed'] as const;
+const MAX_LOG_WINDOW_DAYS = 400;
+
+const logQuery = z.object({
+  /** ISO timestamps: since is inclusive, until exclusive. The UI sends the viewer's local day boundaries. */
+  since: z.coerce.date().optional(),
+  until: z.coerce.date().optional(),
+  project: z.string().regex(/^[a-z0-9][a-z0-9-]{1,40}$/).optional(),
+  domain: z
+    .string()
+    .max(253)
+    .regex(/^(?!-)[a-z0-9-]+(\.[a-z0-9-]+)+$/i, 'Must be a bare domain like example.com')
+    .optional(),
+  status: z.enum(STATUSES).optional(),
+  recipient: z.string().trim().min(1).max(320).optional(),
+  subject: z.string().trim().min(1).max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  /** Id of the last email on the previous page. */
+  cursor: z.string().uuid().optional(),
+});
+
+function serializeLogRow(r: LogRow) {
+  return {
+    id: r.id,
+    project: r.project_slug,
+    status: r.status,
+    from: r.from_address,
+    from_domain: r.from_domain,
+    to: r.to_addresses,
+    cc: r.cc_addresses,
+    bcc: r.bcc_addresses,
+    suppressed_recipients: r.suppressed,
+    subject: r.subject,
+    template: r.template_name,
+    attempts: r.attempts,
+    last_error: r.last_error,
+    attachment_count: r.attachment_count,
+    created_at: r.created_at,
+    sent_at: r.sent_at,
+  };
+}
+
 const domainSchema = z
   .string()
   .min(3)
@@ -156,14 +214,92 @@ export const adminRoutes: FastifyPluginAsync = async (instance) => {
     },
   );
 
+  // ---- Email log (every project) ---------------------------------------------
+
+  app.get('/emails', { schema: { querystring: logQuery } }, async (req) => {
+    const { limit, cursor, ...filters } = req.query;
+    const { since, until } = filters;
+    if (since && until && since >= until) throw badRequest('invalid_window', '"since" must be before "until"');
+    if (since && (until ?? new Date()).getTime() - since.getTime() > MAX_LOG_WINDOW_DAYS * 86_400_000) {
+      throw badRequest('window_too_large', `Window may not exceed ${MAX_LOG_WINDOW_DAYS} days`);
+    }
+    const f = {
+      since,
+      until,
+      projectSlug: filters.project,
+      domain: filters.domain,
+      status: filters.status,
+      recipient: filters.recipient,
+      subject: filters.subject,
+    };
+    const [{ rows, nextCursor }, counts] = await Promise.all([
+      searchLog(app.db, f, { limit, cursor }),
+      logStatusCounts(app.db, f),
+    ]);
+    return {
+      data: rows.map(serializeLogRow),
+      next_cursor: nextCursor,
+      // Per status for the same filters minus the status filter; total is their sum.
+      counts,
+      total: Object.values(counts).reduce((a, b) => a + b, 0),
+      retention_days: app.cfg.RETENTION_DAYS,
+    };
+  });
+
   app.get('/emails/:id', { schema: { params: z.object({ id: z.string().uuid() }) } }, async (req) => {
     const m = await getMessage(app.db, req.params.id);
     if (!m) throw notFound('Email');
+    const { rows } = await app.db.query<{ slug: string }>('SELECT slug FROM projects WHERE id = $1', [m.project_id]);
     return {
       ...serializeMessage(m, true, await listAttachmentMeta(app.db, m.id)),
+      project: rows[0]?.slug ?? null,
+      from_domain: m.from_domain,
+      has_remote_images: hasRemoteImages(m.html),
       events: await listEvents(app.db, m.id),
     };
   });
+
+  /**
+   * The email rendered as a standalone document, for a sandboxed <iframe> in the
+   * admin UI. Never served with the admin page's own CSP: see previewCsp.
+   */
+  app.get(
+    '/emails/:id/preview',
+    {
+      schema: {
+        params: z.object({ id: z.string().uuid() }),
+        querystring: z.object({ remote_images: z.enum(['0', '1']).default('0') }),
+      },
+    },
+    async (req, reply) => {
+      const m = await getMessage(app.db, req.params.id);
+      if (!m) throw notFound('Email');
+      const inline = m.html ? await loadInlineImages(app.db, m.id) : [];
+      return reply
+        .header('content-type', 'text/html; charset=utf-8')
+        .header('content-security-policy', previewCsp(req.query.remote_images === '1'))
+        .header('referrer-policy', 'no-referrer')
+        .header('x-content-type-options', 'nosniff')
+        .header('cache-control', 'no-store')
+        .send(buildPreview(m, inline));
+    },
+  );
+
+  app.get(
+    '/emails/:id/attachments/:position',
+    { schema: { params: z.object({ id: z.string().uuid(), position: z.coerce.number().int().min(0).max(100) }) } },
+    async (req, reply) => {
+      const a = await getAttachment(app.db, req.params.id, req.params.position);
+      if (!a) throw notFound('Attachment');
+      return reply
+        .header('content-type', a.content_type ?? 'application/octet-stream')
+        .header('content-disposition', attachmentDisposition(a.filename))
+        .header('content-security-policy', "sandbox; default-src 'none'")
+        .header('x-content-type-options', 'nosniff')
+        .header('cache-control', 'no-store')
+        .send(a.content);
+    },
+  );
 
   app.get('/projects/:slug/templates', { schema: { params: slugParam } }, async (req) => {
     const project = await getProjectBySlug(app.db, req.params.slug);

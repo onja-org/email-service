@@ -159,6 +159,7 @@ export async function submitEmail(
       idempotencyKey: input.idempotency_key,
       status,
       from: prepared.from,
+      fromDomain: prepared.fromDomain,
       replyTo: prepared.replyTo,
       to,
       cc,

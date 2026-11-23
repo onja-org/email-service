@@ -21,6 +21,7 @@ function row(over: Partial<MessageRow>): MessageRow {
     idempotency_key: null,
     status: 'queued',
     from_address: 'no-reply@billing.example.com',
+    from_domain: 'billing.example.com',
     reply_to: [],
     to_addresses: ['ada@example.com'],
     cc_addresses: [],

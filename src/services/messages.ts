@@ -17,6 +17,8 @@ export interface MessageRow {
   idempotency_key: string | null;
   status: MessageStatus;
   from_address: string;
+  /** Lower-cased domain of from_address, e.g. "billing.example.com". */
+  from_domain: string;
   reply_to: string[];
   to_addresses: string[];
   cc_addresses: string[];
@@ -42,6 +44,7 @@ export interface NewMessage {
   idempotencyKey?: string;
   status: 'queued' | 'suppressed';
   from: string;
+  fromDomain: string;
   replyTo: string[];
   to: string[];
   cc: string[];
@@ -81,11 +84,13 @@ export async function insertMessage(
     m.templateData ? JSON.stringify(m.templateData) : null,
     JSON.stringify(m.headers),
     JSON.stringify(m.tags),
+    m.fromDomain,
   ];
   const { rows } = await db.query<MessageRow>(
     `INSERT INTO messages (project_id, idempotency_key, status, from_address, reply_to, to_addresses,
-       cc_addresses, bcc_addresses, suppressed, subject, html, text, template_name, template_data, headers, tags)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+       cc_addresses, bcc_addresses, suppressed, subject, html, text, template_name, template_data, headers, tags,
+       from_domain)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
      ON CONFLICT (project_id, idempotency_key) DO NOTHING
      RETURNING *`,
     params,
@@ -130,6 +135,32 @@ export async function loadAttachments(db: Queryable, messageId: string): Promise
     contentId: r.content_id ?? undefined,
     content: r.content,
   }));
+}
+
+/** One attachment with its bytes, by position (0-based), for download. */
+export async function getAttachment(
+  db: Queryable,
+  messageId: string,
+  position: number,
+): Promise<{ filename: string; content_type: string | null; content: Buffer } | null> {
+  const { rows } = await db.query<{ filename: string; content_type: string | null; content: Buffer }>(
+    'SELECT filename, content_type, content FROM message_attachments WHERE message_id = $1 AND position = $2',
+    [messageId, position],
+  );
+  return rows[0] ?? null;
+}
+
+/** Inline (cid:) attachments with their bytes, for the HTML preview. */
+export async function loadInlineImages(
+  db: Queryable,
+  messageId: string,
+): Promise<{ contentId: string; contentType: string; content: Buffer }[]> {
+  const { rows } = await db.query<{ content_id: string; content_type: string | null; content: Buffer }>(
+    `SELECT content_id, content_type, content FROM message_attachments
+     WHERE message_id = $1 AND content_id IS NOT NULL ORDER BY position`,
+    [messageId],
+  );
+  return rows.map((r) => ({ contentId: r.content_id, contentType: r.content_type ?? 'application/octet-stream', content: r.content }));
 }
 
 export async function listAttachmentMeta(db: Queryable, messageId: string): Promise<AttachmentMeta[]> {

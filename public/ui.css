@@ -24,6 +24,8 @@
 }
 
 * { box-sizing: border-box; }
+/* The hidden attribute must win over component display rules (e.g. .actions { display: inline-flex }). */
+[hidden] { display: none !important; }
 html, body { margin: 0; background: var(--page); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
 a { color: inherit; }
 main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 48px; }
@@ -98,3 +100,27 @@ details > summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
 /* Login */
 .login { max-width: 380px; margin: 80px auto; }
 .login form { display: flex; flex-direction: column; gap: 10px; }
+
+/* Email log */
+main.wide { max-width: 1440px; }
+input[type=date] { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0 8px; height: 32px; min-width: 0; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; flex-wrap: wrap; }
+.seg button { border: 0; border-radius: 0; height: 30px; border-right: 1px solid var(--border); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+.filters > select, .filters > input[type=search] { flex: 1 1 160px; }
+.counts { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 10px 0 4px; font-size: 13px; }
+.counts button.chip { cursor: pointer; height: auto; background: transparent; }
+.counts button.chip[aria-pressed="true"] { background: var(--wash); font-weight: 600; }
+.log-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin-top: 12px; }
+@media (min-width: 1100px) { .log-grid.has-detail { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); } .log-grid .detail { position: sticky; top: 12px; align-self: start; max-height: calc(100vh - 24px); overflow: auto; } }
+tr.selected td { background: var(--wash); }
+.tabs-row { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 10px 0; flex-wrap: wrap; }
+.tabs-row button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; height: 30px; }
+.tabs-row button[aria-selected="true"] { border-bottom-color: var(--accent); font-weight: 600; }
+.preview-wrap { height: 560px; min-height: 200px; resize: vertical; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+.preview-wrap iframe { width: 100%; height: 100%; border: 0; display: block; background: #fff; }
+.attach-list { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+.attach-list a { font-size: 12px; text-decoration: none; border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; }
+.attach-list a:hover { background: var(--wash); }

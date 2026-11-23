@@ -85,6 +85,7 @@ const fakeDb = {
         bcc_addresses: params[7],
         suppressed: params[8],
         subject: params[9],
+        from_domain: params[16],
         html: params[10],
         text: params[11],
         template_name: params[12],
@@ -116,8 +117,13 @@ const fakeDb = {
         .map(({ filename, content_type, content_id, size_bytes }) => ({ filename, content_type, content_id, size_bytes }));
       return { rows, rowCount: rows.length };
     }
+    if (s.startsWith('SELECT content_id, content_type, content FROM message_attachments')) {
+      const rows = attachmentRows.filter((a) => a.message_id === params[0] && a.content_id);
+      return { rows, rowCount: rows.length };
+    }
     if (s.startsWith('SELECT * FROM messages WHERE id = $1')) {
-      const row = inserted.find((m) => m.id === params[0] && m.project_id === params[1]);
+      // Admin lookups pass a null project id.
+      const row = inserted.find((m) => m.id === params[0] && (params[1] == null || m.project_id === params[1]));
       return { rows: row ? [row] : [], rowCount: row ? 1 : 0 };
     }
     throw new Error(`fakeDb: unexpected query: ${s}`);
@@ -333,6 +339,47 @@ describe('POST /v1/emails', () => {
       payload: { ...validBody, attachments: [{ filename: 'data.bin', content: tooBig }] },
     });
     expect(res2.statusCode).toBe(400);
+  });
+
+  it('serves a sandboxed admin preview with inline images embedded', async () => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/emails',
+      headers: auth,
+      payload: {
+        ...validBody,
+        html: '<img src="cid:logo"><img src="https://tracker.test/open.gif"><script>parent.x=1</script>',
+        attachments: [{ filename: 'logo.png', content: png.toString('base64'), content_id: 'logo' }],
+      },
+    });
+    const id = res.json().id;
+    const admin = { authorization: `Bearer ${cfg.ADMIN_TOKEN}` };
+
+    const preview = await app.inject({ method: 'GET', url: `/admin/emails/${id}/preview`, headers: admin });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.headers['content-security-policy']).toMatch(/^sandbox; default-src 'none'.*img-src data:;/);
+    expect(preview.headers['referrer-policy']).toBe('no-referrer');
+    expect(preview.body).toContain(`data:image/png;base64,${png.toString('base64')}`);
+
+    const remote = await app.inject({ method: 'GET', url: `/admin/emails/${id}/preview?remote_images=1`, headers: admin });
+    expect(remote.headers['content-security-policy']).toContain('img-src data: https: http:');
+
+    expect((await app.inject({ method: 'GET', url: `/admin/emails/${id}/preview` })).statusCode).toBe(401);
+  });
+
+  it('validates the email log window', async () => {
+    const admin = { authorization: `Bearer ${cfg.ADMIN_TOKEN}` };
+    const backwards = await app.inject({
+      method: 'GET',
+      url: '/admin/emails?since=2026-11-02T00:00:00Z&until=2026-11-01T00:00:00Z',
+      headers: admin,
+    });
+    expect(backwards.statusCode).toBe(400);
+    expect(backwards.json().error.code).toBe('invalid_window');
+    const badDomain = await app.inject({ method: 'GET', url: '/admin/emails?domain=%25.io', headers: admin });
+    expect(badDomain.statusCode).toBe(400);
+    expect(badDomain.json().error.code).toBe('validation_error');
   });
 
   it('returns 400 with validation details for a malformed body', async () => {

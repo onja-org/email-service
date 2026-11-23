@@ -27,6 +27,8 @@ const schema = z.object({
   SQS_WAIT_SECONDS: z.coerce.number().int().min(0).max(20).default(20),
   SQS_BATCH_SIZE: z.coerce.number().int().min(1).max(10).default(10),
   MAX_SEND_ATTEMPTS: z.coerce.number().int().min(1).default(5),
+  // Emails (with their events and attachments) older than this are deleted. 0 keeps them forever.
+  RETENTION_DAYS: z.coerce.number().int().min(0).default(90),
 
   // When true, the worker logs the email instead of calling SES. Useful locally.
   SES_DRY_RUN: boolish.default('false'),

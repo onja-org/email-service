@@ -13,6 +13,7 @@ import {
   markSent,
   touch,
 } from './services/messages.js';
+import { purgeExpired } from './services/email-log.js';
 
 export interface WorkerDeps {
   cfg: Config;
@@ -28,6 +29,9 @@ export interface Worker {
 }
 
 const STALE_SWEEP_INTERVAL_MS = 60_000;
+/** Retention purge cadence; the first run happens shortly after start. */
+const PURGE_INTERVAL_MS = 6 * 60 * 60_000;
+const FIRST_PURGE_DELAY_MS = 60_000;
 const STALE_AFTER_MINUTES = 10;
 /** How long to hide a job whose message another worker is currently sending (> claim's 5-minute lease). */
 const IN_FLIGHT_RETRY_SECONDS = 330;
@@ -45,6 +49,8 @@ export function createWorker(deps: WorkerDeps): Worker {
   let running = false;
   let loop: Promise<void> | null = null;
   let sweepTimer: NodeJS.Timeout | null = null;
+  let purgeTimer: NodeJS.Timeout | null = null;
+  let firstPurge: NodeJS.Timeout | null = null;
 
   async function processJob(q: QueuedJob): Promise<void> {
     const id = q.job.messageId;
@@ -156,6 +162,17 @@ export function createWorker(deps: WorkerDeps): Worker {
     }
   }
 
+  /** Deletes emails past RETENTION_DAYS. Safe to run from several workers at once. */
+  async function purge(): Promise<void> {
+    if (cfg.RETENTION_DAYS <= 0) return;
+    try {
+      const out = await purgeExpired(db, cfg.RETENTION_DAYS);
+      if (out.messages || out.orphanEvents) log.info({ ...out, retentionDays: cfg.RETENTION_DAYS }, 'retention purge');
+    } catch (err) {
+      log.error({ err }, 'retention purge failed');
+    }
+  }
+
   return {
     start() {
       if (running) return;
@@ -164,10 +181,16 @@ export function createWorker(deps: WorkerDeps): Worker {
       loop = pollLoop();
       sweepTimer = setInterval(() => void sweepStale(), STALE_SWEEP_INTERVAL_MS);
       void sweepStale();
+      if (cfg.RETENTION_DAYS > 0) {
+        firstPurge = setTimeout(() => void purge(), FIRST_PURGE_DELAY_MS);
+        purgeTimer = setInterval(() => void purge(), PURGE_INTERVAL_MS);
+      }
     },
     async stop() {
       running = false;
       if (sweepTimer) clearInterval(sweepTimer);
+      if (purgeTimer) clearInterval(purgeTimer);
+      if (firstPurge) clearTimeout(firstPurge);
       // The loop exits after the current long-poll (≤ SQS_WAIT_SECONDS) and batch finish.
       await loop;
       log.info('worker stopped');

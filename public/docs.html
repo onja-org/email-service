@@ -613,6 +613,7 @@ elif email["suppressed_recipients"]:
       <section id="retries">
         <h2>Retries and idempotency</h2>
         <p>If a request times out, you can't tell whether the email was stored. Retrying without protection could send it twice. To prevent that, send an <code>idempotency_key</code> with every email. If the service sees a key again, it returns the email it already stored and sends nothing new.</p>
+        <p>Keys are remembered for as long as the email is kept: <strong>90 days</strong>. After that the email is deleted, and a request reusing its key sends a new email.</p>
         <p>The best key comes from the event that triggers the email, such as <code>invoice-42-sent</code> or <code>password-reset-&lt;token id&gt;</code>. A key like that also protects you when a job runs twice or your own process crashes and restarts. If there's no natural key, the helper below makes a random one for each email and reuses it on every retry of that email.</p>
         <p>Retry network errors and <code>5xx</code> responses. Don't retry <code>4xx</code> responses, because the same request will fail the same way. Add this to the helper file, then use it for every send:</p>
 
@@ -822,6 +823,7 @@ if err != nil {
         <div class="status-flow">queued → sending → sent → delivered | bounced | complained
                  ↘ failed        rejected for sending, or every retry failed
 suppressed                       every "to" address was suppressed; nothing sent</div>
+        <div class="callout"><p>Emails are kept for <strong>90 days</strong>, with their delivery events and attachments, and then deleted. After that, <code>GET /v1/emails/:id</code> returns <code>404</code>. If you need a longer record, store the <code>id</code> and status in your own database.</p></div>
         <p style="margin-top:12px"><code>sent</code> means the email has left the service on its way to the recipient. <code>delivered</code>, <code>bounced</code> and <code>complained</code> come later, when the recipient's mail server reports back. That can take seconds or, for a soft bounce, much longer. Your project doesn't get a callback when the status changes. To find out, fetch the email by its <code>id</code>:</p>
         <div class="code" data-lang="node">
           <div class="code-head"><span class="file">status.js</span><button type="button" class="copy small">Copy</button></div>
@@ -1032,7 +1034,7 @@ if errors.As(err, &amp;apiErr) &amp;&amp; apiErr.Code == "invalid_recipient" {
               <tr><td>401</td><td><code>unauthorized</code></td><td>The API key is missing, malformed or revoked.</td></tr>
               <tr><td>403</td><td><code>sender_domain_not_allowed</code></td><td>The <code>from</code> domain isn't one of your project's domains.</td></tr>
               <tr><td>403</td><td><code>suppression_not_removable</code></td><td>You tried to remove a suppression your project didn't add.</td></tr>
-              <tr><td>404</td><td><code>not_found</code></td><td>The email, template or suppression doesn't exist, or belongs to another project.</td></tr>
+              <tr><td>404</td><td><code>not_found</code></td><td>The email, template or suppression doesn't exist, belongs to another project, or the email is older than 90 days and has been deleted.</td></tr>
               <tr><td>5xx</td><td><code>internal_error</code></td><td>A problem on the service's side. Retry with the same <code>idempotency_key</code>.</td></tr>
             </tbody>
           </table>

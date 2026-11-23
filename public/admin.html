@@ -12,6 +12,7 @@
     <h1>Email service</h1>
     <nav id="nav">
       <a href="#/projects" data-route="projects">Projects</a>
+      <a href="#/emails" data-route="emails">Emails</a>
       <a href="#/suppressions" data-route="suppressions">Suppressions</a>
       <a href="/dashboard">Dashboard</a>
       <a href="/">Developer guide</a>
@@ -288,10 +289,243 @@
         el('h3', { text: 'API keys' }), keyTable, newKey, keyForm,
         el('h3', { text: 'Templates' }), templateTable,
       ]),
-      card('Recent emails', el('span', { class: 'actions' }, [statusSel, toInput, el('button', { class: 'small', text: 'Refresh', onclick: loadEmails })]), emails),
+      card('Recent emails', el('span', { class: 'actions' }, [statusSel, toInput, el('button', { class: 'small', text: 'Refresh', onclick: loadEmails }), el('a', { href: `#/emails?project=${encodeURIComponent(slug)}&range=30d`, class: 'sub', text: 'Open in email log →' })]), emails),
       detail,
     );
     await loadEmails();
+  }
+
+
+  // ---- email log ----
+  const RANGES = [
+    ['today', 'Today'], ['yesterday', 'Yesterday'], ['7d', 'Last 7 days'], ['30d', 'Last 30 days'], ['90d', 'Last 90 days'], ['custom', 'Custom'],
+  ];
+  const dayStart = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+  const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+  const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const parseYmd = (s) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || ''); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null; };
+  /** [since, until) in the viewer's local time, so "Today" means their today, not the server's. */
+  function rangeWindow(st) {
+    const today = dayStart(new Date()), tomorrow = addDays(today, 1);
+    switch (st.range) {
+      case 'today': return [today, tomorrow];
+      case 'yesterday': return [addDays(today, -1), today];
+      case '7d': return [addDays(today, -6), tomorrow];
+      case '30d': return [addDays(today, -29), tomorrow];
+      case '90d': return [addDays(today, -89), tomorrow];
+      case 'custom': {
+        const from = parseYmd(st.from), to = parseYmd(st.to);
+        return [from, to ? addDays(to, 1) : null];
+      }
+      default: return [addDays(today, -6), tomorrow];
+    }
+  }
+  function rangeLabel(st) {
+    if (st.range !== 'custom') return (RANGES.find(([k]) => k === st.range) || RANGES[2])[1];
+    const f = parseYmd(st.from), t = parseYmd(st.to);
+    const d = (x) => x.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+    return f && t ? `${d(f)} – ${d(t)}` : f ? `Since ${d(f)}` : t ? `Until ${d(t)}` : 'All time';
+  }
+  const fmtFull = (iso) => iso ? new Date(iso).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '–';
+  const fmtSize = (n) => n < 1024 ? `${n} B` : n < 1048576 ? `${Math.ceil(n / 1024)} KB` : `${(n / 1048576).toFixed(1)} MB`;
+  const LOG_KEYS = ['range', 'from', 'to', 'project', 'domain', 'status', 'recipient', 'subject', 'id'];
+
+  async function emailsView(query) {
+    const st = Object.fromEntries(LOG_KEYS.map((k) => [k, query.get(k) || '']));
+    if (!st.range) st.range = '7d';
+    document.querySelector('main').classList.add('wide');
+    render(el('div', { class: 'card loading', text: 'Loading…' }));
+    const { data: projects } = await get('/admin/projects');
+
+    /** Keep the URL shareable without re-running the router (replaceState fires no hashchange). */
+    const syncUrl = () => {
+      const q = new URLSearchParams();
+      for (const k of LOG_KEYS) if (st[k] && !(k === 'range' && st[k] === '7d')) q.set(k, st[k]);
+      const qs = q.toString();
+      history.replaceState(null, '', `#/emails${qs ? `?${qs}` : ''}`);
+    };
+
+    // -- controls
+    const seg = el('div', { class: 'seg', role: 'group', 'aria-label': 'Date range' }, RANGES.map(([k, label]) =>
+      el('button', { type: 'button', 'data-range': k, 'aria-pressed': String(st.range === k), text: label })));
+    const fromI = el('input', { type: 'date', 'aria-label': 'From date' });
+    const toI = el('input', { type: 'date', 'aria-label': 'To date' });
+    const custom = el('span', { class: 'actions' }, [fromI, el('span', { class: 'muted', text: 'to' }), toI]);
+    const projectSel = el('select', { 'aria-label': 'Project' }, [el('option', { value: '', text: 'All projects' }), ...projects.map((p) => el('option', { value: p.slug, text: p.name ? `${p.name} (${p.slug})` : p.slug }))]);
+    const domainSel = el('select', { 'aria-label': 'Sender domain' });
+    const statusSel = el('select', { 'aria-label': 'Status' }, [el('option', { value: '', text: 'All statuses' }), ...Object.keys(STATUS_CLASS).map((s) => el('option', { value: s, text: s }))]);
+    const recipientI = el('input', { type: 'search', placeholder: 'Recipient contains…', 'aria-label': 'Recipient' });
+    const subjectI = el('input', { type: 'search', placeholder: 'Subject contains…', 'aria-label': 'Subject' });
+    function fillDomains() {
+      const list = projects.filter((p) => !projectSel.value || p.slug === projectSel.value)
+        .flatMap((p) => p.domains.map((d) => [d, p.slug]));
+      clear(domainSel).append(el('option', { value: '', text: 'All domains' }), ...list.map(([d, slug]) => el('option', { value: d, text: projectSel.value ? d : `${d} · ${slug}` })));
+      if (st.domain && !list.some(([d]) => d === st.domain)) domainSel.append(el('option', { value: st.domain, text: st.domain }));
+      domainSel.value = st.domain;
+    }
+    projectSel.value = st.project; fillDomains(); statusSel.value = st.status;
+    recipientI.value = st.recipient; subjectI.value = st.subject; fromI.value = st.from; toI.value = st.to;
+
+    const summary = el('div', { class: 'counts' });
+    const list = el('div');
+    const more = el('div', { class: 'actions', style: 'margin-top:8px' });
+    const detail = el('div', { class: 'detail' });
+    const grid = el('div', { class: 'log-grid' }, [card('Emails', null, [summary, list, more]), detail]);
+    let retentionDays = 90;
+
+    function applyDateLimits() {
+      const today = dayStart(new Date());
+      const min = ymd(addDays(today, -(retentionDays - 1 || 0)));
+      for (const i of [fromI, toI]) { i.max = ymd(today); if (retentionDays > 0) i.min = min; }
+      custom.hidden = st.range !== 'custom';
+    }
+
+    // -- data
+    let loadSeq = 0;
+    async function load(append = false, cursor = null) {
+      const seq = ++loadSeq;
+      const [since, until] = rangeWindow(st);
+      const q = new URLSearchParams({ limit: '50' });
+      if (since) q.set('since', since.toISOString());
+      if (until) q.set('until', until.toISOString());
+      for (const k of ['project', 'domain', 'status', 'recipient', 'subject']) if (st[k]) q.set(k, st[k]);
+      if (cursor) q.set('cursor', cursor);
+      list.classList.add('loading');
+      let res;
+      try { res = await get(`/admin/emails?${q}`); } catch (err) { list.classList.remove('loading'); banner(describe(err)); return; }
+      if (seq !== loadSeq) return; // a newer filter change won
+      list.classList.remove('loading');
+      retentionDays = res.retention_days; applyDateLimits();
+
+      if (!append) {
+        clear(summary).append(
+          el('strong', { text: st.status
+            ? `${(res.counts[st.status] || 0).toLocaleString()} ${st.status} of ${res.total.toLocaleString()} email${res.total === 1 ? '' : 's'}`
+            : `${res.total.toLocaleString()} email${res.total === 1 ? '' : 's'}` }),
+          el('span', { class: 'muted', text: ` · ${rangeLabel(st)}${retentionDays > 0 ? ` · kept ${retentionDays} days` : ''}` }),
+          ...Object.keys(STATUS_CLASS).filter((s) => res.counts[s]).map((s) => el('button', {
+            type: 'button', class: `chip ${STATUS_CLASS[s]}`, 'aria-pressed': String(st.status === s), title: st.status === s ? 'Show all statuses' : `Only ${s}`,
+            text: `${s} ${res.counts[s].toLocaleString()}`,
+            onclick: () => { st.status = st.status === s ? '' : s; statusSel.value = st.status; changed(); },
+          })),
+        );
+      }
+      const rows = res.data.map((m) => el('tr', { class: `clickable${m.id === st.id ? ' selected' : ''}`, 'data-id': m.id, onclick: () => openEmail(m.id) }, [
+        el('td', { text: fmt(m.created_at), title: fmtFull(m.created_at) }),
+        el('td', { class: 'wrap' }, [el('div', { text: m.from_domain }), el('div', { class: 'muted', style: 'font-size:11px', text: m.project })]),
+        el('td', { class: 'wrap', text: m.to.join(', ') || (m.suppressed_recipients.length ? '(all suppressed)' : '') }),
+        el('td', { class: 'wrap' }, [m.subject, m.attachment_count ? el('span', { class: 'muted', title: `${m.attachment_count} attachment(s)`, text: ` · ${m.attachment_count} file${m.attachment_count === 1 ? '' : 's'}` }) : null]),
+        el('td', {}, statusChip(m.status)),
+      ]));
+      if (append) {
+        const tbody = list.querySelector('tbody');
+        if (tbody) tbody.append(...rows);
+      } else {
+        clear(list).append(table(['Time', 'Domain', 'To', 'Subject', 'Status'], rows, 'No emails match these filters.'));
+      }
+      clear(more);
+      if (res.next_cursor) more.append(el('button', { class: 'small', text: 'Load more', onclick: (e) => act(e.target, () => load(true, res.next_cursor)) }));
+    }
+
+    async function openEmail(id) {
+      st.id = id; syncUrl();
+      list.querySelectorAll('tr.selected').forEach((r) => r.classList.remove('selected'));
+      list.querySelector(`tr[data-id="${CSS.escape(id)}"]`)?.classList.add('selected');
+      grid.classList.add('has-detail');
+      clear(detail).append(el('div', { class: 'card loading', text: 'Loading…' }));
+      let m;
+      try { m = await get(`/admin/emails/${id}`); } catch (err) {
+        clear(detail).append(card('Email not found', null, el('p', { class: 'sub', text: err.status === 404 ? `It may be older than the ${retentionDays}-day retention period.` : describe(err) })));
+        return;
+      }
+      if (st.id !== id) return;
+      const closeBtn = el('button', { class: 'small', text: 'Close', onclick: () => { st.id = ''; syncUrl(); clear(detail); grid.classList.remove('has-detail'); list.querySelectorAll('tr.selected').forEach((r) => r.classList.remove('selected')); } });
+
+      let remote = false;
+      const frameWrap = el('div', { class: 'preview-wrap' });
+      const setFrame = () => clear(frameWrap).append(el('iframe', {
+        src: `/admin/emails/${id}/preview${remote ? '?remote_images=1' : ''}`, sandbox: '', referrerpolicy: 'no-referrer', title: `Preview of ${m.subject}`,
+      }));
+      const remoteNote = m.has_remote_images ? el('div', { class: 'notice' }, [
+        'Remote images are blocked so the preview does not count as an open for the sender’s trackers. ',
+        el('button', { class: 'small', text: 'Load remote images', onclick: (e) => { remote = true; setFrame(); e.target.closest('.notice').remove(); } }),
+      ]) : null;
+      setFrame();
+
+      const attachments = (m.attachments || []).length ? el('div', { class: 'attach-list' }, m.attachments.map((a, i) => el('a', {
+        href: `/admin/emails/${id}/attachments/${i}`, download: a.filename, title: a.content_type || '',
+        text: `${a.filename} · ${fmtSize(a.size)}${a.content_id ? ' · inline' : ''}`,
+      }))) : null;
+
+      const kv = (pairs) => el('dl', { class: 'kv' }, pairs.flatMap(([k, v]) => v == null || v === '' ? [] : [el('dt', { text: k }), el('dd', {}, v)]));
+      const panes = {
+        preview: () => [remoteNote, frameWrap],
+        text: () => m.text ? el('pre', { style: 'max-height:560px;white-space:pre-wrap', text: m.text }) : el('div', { class: 'empty', text: 'No text part. Some clients and spam filters prefer emails that include one.' }),
+        source: () => m.html ? el('pre', { style: 'max-height:560px', text: m.html }) : el('div', { class: 'empty', text: 'No HTML part.' }),
+        details: () => kv([
+          ['Status', statusChip(m.status)], ['Project', m.project], ['From', m.from], ['To', m.to.join(', ')], ['Cc', m.cc.join(', ')], ['Bcc', m.bcc.join(', ')],
+          ['Suppressed', m.suppressed_recipients.join(', ')], ['Reply-to', m.reply_to.join(', ')], ['Subject', m.subject],
+          ['Template', m.template], ['Tags', Object.entries(m.tags).map(([k, v]) => `${k}=${v}`).join(', ')],
+          ['Headers', Object.entries(m.headers || {}).map(([k, v]) => `${k}: ${v}`).join('\n')],
+          ['Idempotency key', m.idempotency_key], ['Attempts', String(m.attempts)], ['Last error', m.last_error],
+          ['SES message id', m.ses_message_id], ['Created', fmtFull(m.created_at)], ['Sent', fmtFull(m.sent_at)], ['Email id', m.id],
+        ]),
+        events: () => table(['Time', 'Type', 'Payload'], m.events.map((ev) => el('tr', {}, [
+          el('td', { text: fmtFull(ev.created_at) }), el('td', {}, statusChip(ev.event_type.toLowerCase())),
+          el('td', {}, el('details', {}, [el('summary', { text: 'payload' }), el('pre', { text: JSON.stringify(ev.payload, null, 2) })])),
+        ])), 'No events yet. Delivery, bounce and complaint events arrive through the SNS webhook.'),
+      };
+      const paneHost = el('div');
+      const tabs = el('div', { class: 'tabs-row', role: 'tablist' }, [['preview', 'Preview'], ['text', 'Text'], ['source', 'HTML source'], ['details', 'Details'], ['events', `Events (${m.events.length})`]].map(([k, label]) =>
+        el('button', { type: 'button', role: 'tab', 'aria-selected': String(k === 'preview'), text: label, onclick: (e) => {
+          tabs.querySelectorAll('button').forEach((b) => b.setAttribute('aria-selected', String(b === e.target)));
+          clear(paneHost).append(...[].concat(panes[k]()).filter(Boolean));
+        } })));
+      clear(paneHost).append(...[].concat(panes.preview()).filter(Boolean));
+
+      clear(detail).append(card(m.subject || '(no subject)', closeBtn, [
+        el('div', { class: 'sub' }, [statusChip(m.status), ` ${m.from} → ${m.to.join(', ') || '(no recipients)'}`]),
+        el('div', { class: 'muted', style: 'font-size:12px;margin-top:2px', text: `${fmtFull(m.created_at)} · ${m.project}` }),
+        attachments, tabs, paneHost,
+      ]));
+      if (window.innerWidth < 1100) detail.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    const changed = () => { syncUrl(); load(); };
+    seg.addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-range]'); if (!b) return;
+      st.range = b.dataset.range;
+      seg.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+      if (st.range === 'custom') {
+        if (!st.from && !st.to) { const [s, u] = rangeWindow({ range: '7d' }); st.from = ymd(s); st.to = ymd(addDays(u, -1)); fromI.value = st.from; toI.value = st.to; }
+      } else { st.from = ''; st.to = ''; }
+      applyDateLimits(); changed();
+    });
+    for (const i of [fromI, toI]) i.addEventListener('change', () => {
+      st.from = fromI.value; st.to = toI.value;
+      if (st.from && st.to && st.from > st.to) { banner('The start date is after the end date.'); return; }
+      banner(null); changed();
+    });
+    projectSel.addEventListener('change', () => { st.project = projectSel.value; st.domain = ''; fillDomains(); changed(); });
+    domainSel.addEventListener('change', () => { st.domain = domainSel.value; changed(); });
+    statusSel.addEventListener('change', () => { st.status = statusSel.value; changed(); });
+    let typing;
+    for (const [i, k] of [[recipientI, 'recipient'], [subjectI, 'subject']]) {
+      i.addEventListener('input', () => { clearTimeout(typing); typing = setTimeout(() => { st[k] = i.value.trim(); changed(); }, 300); });
+    }
+
+    render(
+      card('Email log', el('span', { class: 'sub', text: 'Every email sent by every project. Click one to preview it.' }), [
+        el('div', { class: 'actions' }, [seg, custom]),
+        el('div', { class: 'filters' }, [projectSel, domainSel, statusSel, recipientI, subjectI,
+          el('button', { class: 'small', text: 'Reset', onclick: () => { history.replaceState(null, '', '#/emails'); emailsView(new URLSearchParams()); } }),
+          el('button', { class: 'small', text: 'Refresh', onclick: () => load() })]),
+      ]),
+      grid,
+    );
+    applyDateLimits();
+    await load();
+    if (st.id) openEmail(st.id);
   }
 
   async function suppressionsView() {
@@ -342,12 +576,14 @@
   async function route() {
     const h = location.hash || '#/projects';
     const m = h.match(/^#\/projects\/([^/]+)$/);
-    const current = h.startsWith('#/suppressions') ? 'suppressions' : 'projects';
+    const current = h.startsWith('#/suppressions') ? 'suppressions' : h.startsWith('#/emails') ? 'emails' : 'projects';
+    document.querySelector('main').classList.remove('wide');
     document.querySelectorAll('#nav a[data-route]').forEach((a) => a.setAttribute('aria-current', a.dataset.route === current ? 'page' : 'false'));
     banner(null);
     try {
       if (m) await projectView(decodeURIComponent(m[1]));
       else if (current === 'suppressions') await suppressionsView();
+      else if (current === 'emails') await emailsView(new URLSearchParams(h.split('?')[1] || ''));
       else await projectsView();
     } catch (err) {
       if (err.status !== 401) render(el('div', { class: 'card' }, [el('h2', { text: 'Could not load' }), el('p', { class: 'sub', text: describe(err) })]));

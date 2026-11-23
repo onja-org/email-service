@@ -56,7 +56,20 @@ Sending to an unverified address in the sandbox fails with `MessageRejected: Ema
 
 ## 3. Admin UI
 
-**`/admin/ui`** does everything the admin API does, from a browser: create projects, attach domains and see the DNS records and verification status, issue and revoke API keys, browse each project's emails with their SES events, and manage the shared suppression list. **`/dashboard`** is the performance dashboard (§6). Both require signing in at **`/admin/login`** with the `ADMIN_TOKEN`.
+**`/admin/ui`** does everything the admin API does, from a browser: create projects, attach domains and see the DNS records and verification status, issue and revoke API keys, browse each project's emails with their SES events, and manage the shared suppression list.
+
+**Email log (`/admin/ui#/emails`)** lists every email from every project, newest first. Filters:
+- **Time:** Today, Yesterday, Last 7/30/90 days, or a custom date range, in the viewer's local time.
+- **Project and sender domain:** a domain also matches its subdomains.
+- **Status:** the status chips show counts and act as filters.
+- **Text:** recipient (to/cc/bcc) or subject contains.
+
+Click an email to preview it as the recipient sees it:
+- The preview is a sandboxed iframe with no scripts and no forms, and links do nothing.
+- Inline `cid:` images are embedded. Remote images stay blocked until you click "Load remote images", so the preview doesn't register as an open for the sender's trackers.
+- Other tabs show the text part, the HTML source, details/headers and SES events. Attachments are downloadable.
+
+The URL keeps the filters and the selected email, so a view can be shared. **`/dashboard`** is the performance dashboard (§6). Both require signing in at **`/admin/login`** with the `ADMIN_TOKEN`.
 
 A successful login exchanges the token for a signed, HttpOnly, SameSite=Strict session cookie valid for 12 hours, so the token itself is never kept in the browser; sessions are stateless so any replica can verify them. The cookie is signed with `SESSION_SECRET`, or with a value derived from `ADMIN_TOKEN` when unset. Five failed logins from one IP pause that IP for a minute. Writes from the UI must carry an `x-requested-with: emailsvc-ui` header, which browsers never add cross-origin, so a foreign page cannot forge an admin action with the cookie. `ADMIN_TOKEN` keeps working as a bearer token for scripts.
 
@@ -174,6 +187,9 @@ const { id } = await res.json();
 | `GET/POST` | `/admin/suppressions` | Global suppression list; add an admin manual entry |
 | `GET/DELETE` | `/admin/suppressions/:email` | Look up an entry; admins can remove any entry |
 | `GET` | `/admin/projects/:slug/emails`, `/admin/emails/:id`, `/admin/projects/:slug/templates` | Read-only views of a project's messages (with events) and templates |
+| `GET` | `/admin/emails` | Email log across projects. Query: `since`, `until` (ISO; since inclusive, until exclusive), `project`, `domain` (matches subdomains), `status`, `recipient`, `subject`, `limit`, `cursor` (from `next_cursor`). Returns `counts` per status and `total` |
+| `GET` | `/admin/emails/:id/preview[?remote_images=1]` | The email as a sandboxed HTML document (CSP `sandbox`, no scripts, remote images off by default) |
+| `GET` | `/admin/emails/:id/attachments/:position` | Download an attachment (0-based position) |
 | `POST` | `/admin/auth/login`, `/admin/auth/logout`; `GET /admin/auth/me` | Admin UI sessions (login body: `{"token": "<ADMIN_TOKEN>"}`) |
 | `GET` | `/`, `/docs` | Developer guide (public, static) |
 | `GET` | `/admin/login`, `/admin/ui`, `/dashboard` | Admin UI pages |
@@ -271,4 +287,5 @@ docker run -d --name email-service -p 3000:3000 --env-file .env email-service
 - **Worker crash mid-send.** A message left in `sending` is re-claimable after 5 minutes; redeliveries wait for that, and the sweep re-enqueues anything stuck for 10 minutes, so a dead worker never loses an email.
 - **Rotate a key:** create a new one, switch the project, revoke the old (`DELETE /admin/projects/:slug/keys/:id`).
 - **Remove a domain from SES too:** `DELETE /admin/projects/:slug/domains/:domain?delete_identity=true`.
+- **Retention.** Emails older than `RETENTION_DAYS` (default 90) are deleted together with their SES events and attachments. Unmatched SES events of the same age are deleted too. The worker runs this a minute after start, then every 6 hours, in batches of 1,000. Suppressions are kept: they lose their link to the deleted email but keep protecting the address. Set `RETENTION_DAYS=0` to keep everything. Note that idempotency keys are forgotten along with their emails, and the dashboard can only show what is still stored.
 - **Schema changes:** add `migrations/00N_name.sql`; applied automatically on container start (advisory-locked, so parallel replicas are safe).
