@@ -95,7 +95,7 @@ export function prepareAttachments(inputs: AttachmentInput[] | undefined): Prepa
     if (BLOCKED_EXTENSIONS.has(ext)) {
       throw badRequest(
         'blocked_attachment_type',
-        `Attachment ${index} ("${filename}"): Amazon SES does not send ".${ext}" files`,
+        `Attachment ${index} ("${filename}"): ".${ext}" files can't be sent (executables and scripts are blocked)`,
         { index, filename },
       );
     }

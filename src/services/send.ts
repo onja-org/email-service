@@ -72,7 +72,7 @@ export function prepareEmail(input: SendInput, auth: AuthContext): PreparedEmail
   if (to.length === 0) throw badRequest('missing_recipient', 'At least one "to" recipient is required');
 
   const totalRecipients = to.length + (input.cc?.length ?? 0) + (input.bcc?.length ?? 0);
-  if (totalRecipients > 50) throw badRequest('too_many_recipients', 'SES allows at most 50 recipients per message');
+  if (totalRecipients > 50) throw badRequest('too_many_recipients', 'At most 50 recipients (to, cc and bcc together) per email');
 
   if (!input.template) {
     if (!input.subject?.trim()) throw badRequest('missing_subject', '"subject" is required when no template is used');

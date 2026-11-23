@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pigeon · Email that lands</title>
+<meta name="description" content="Pigeon sends your app's transactional email from your own domain. One API call, no SDK, retries and deliverability handled. Built by Onja for developers.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232a63e8'/%3E%3Cpath d='M3 13.5c3.6-3.9 8-4.4 11.6-.6.6.7 1.1 1.4 1.4 2.2.3-.8.8-1.5 1.4-2.2 3.6-3.8 8-3.3 11.6.6-3.5-1.4-7-.9-9.6 1.9-1.3 1.4-2.4 3.4-3.4 6.1-1-2.7-2.1-4.7-3.4-6.1-2.6-2.8-6.1-3.3-9.6-1.9z' fill='%23fff'/%3E%3C/svg%3E">
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f7f7f4; --surface: #ffffff; --surface-2: #f0efea;
+    --ink: #0d0d0c; --ink-2: #4b4a46; --muted: #85837c;
+    --border: rgba(13,13,12,0.10); --border-strong: rgba(13,13,12,0.18);
+    --accent: #2a63e8; --accent-2: #7a4cf0; --accent-ink: #ffffff;
+    --good: #0f9d58; --warn: #d98a00; --bad: #d23c3c;
+    --code-bg: #111214; --code-ink: #e8e8e3; --code-muted: #8b8d93; --code-str: #9fd28a; --code-key: #8ab4ff; --code-punct: #c9c9c3;
+    --glow: rgba(42,99,232,0.16);
+    --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page: #0b0b0c; --surface: #141416; --surface-2: #1b1b1e;
+      --ink: #f1f0ec; --ink-2: #c0beb6; --muted: #8d8b84;
+      --border: rgba(255,255,255,0.09); --border-strong: rgba(255,255,255,0.18);
+      --accent: #5b8cff; --accent-2: #a17bff;
+      --code-bg: #0e0f11;
+      --glow: rgba(91,140,255,0.20);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0b0b0c; --surface: #141416; --surface-2: #1b1b1e;
+    --ink: #f1f0ec; --ink-2: #c0beb6; --muted: #8d8b84;
+    --border: rgba(255,255,255,0.09); --border-strong: rgba(255,255,255,0.18);
+    --accent: #5b8cff; --accent-2: #a17bff;
+    --code-bg: #0e0f11;
+    --glow: rgba(91,140,255,0.20);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } *, *::before, *::after { animation: none !important; transition: none !important; } }
+  body { margin: 0; background: var(--page); color: var(--ink); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+  a { color: inherit; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace; }
+  .wrap { max-width: 1160px; margin: 0 auto; padding: 0 24px; }
+  @media (max-width: 640px) { .wrap { padding: 0 16px; } }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  /* ---------- nav ---------- */
+  .nav { position: sticky; top: 0; z-index: 20; backdrop-filter: saturate(1.6) blur(12px); -webkit-backdrop-filter: saturate(1.6) blur(12px); background: color-mix(in srgb, var(--page) 78%, transparent); border-bottom: 1px solid transparent; transition: border-color .2s; }
+  .nav.scrolled { border-bottom-color: var(--border); }
+  .nav .wrap { display: flex; align-items: center; gap: 28px; height: 64px; }
+  .brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; font-weight: 700; font-size: 19px; letter-spacing: -0.02em; }
+  .mark { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: linear-gradient(135deg, var(--accent), var(--accent-2)); box-shadow: 0 4px 14px var(--glow); flex: none; }
+  .mark svg { width: 20px; height: 20px; }
+  .nav-links { display: flex; gap: 22px; font-size: 14px; color: var(--ink-2); }
+  .nav-links a { text-decoration: none; } .nav-links a:hover { color: var(--ink); }
+  .nav .spacer { flex: 1; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 20px; border-radius: 10px; font-weight: 600; font-size: 15px; text-decoration: none; border: 1px solid transparent; cursor: pointer; transition: transform .15s ease, box-shadow .15s ease, background .15s; white-space: nowrap; }
+  .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .btn-primary { background: var(--accent); color: var(--accent-ink); box-shadow: 0 6px 20px var(--glow), inset 0 1px 0 rgba(255,255,255,.18); }
+  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 10px 28px var(--glow), inset 0 1px 0 rgba(255,255,255,.18); }
+  .btn-ghost { border-color: var(--border-strong); background: var(--surface); color: var(--ink); }
+  .btn-ghost:hover { background: var(--surface-2); }
+  .btn-sm { height: 36px; padding: 0 14px; font-size: 14px; border-radius: 9px; }
+  .btn svg { width: 16px; height: 16px; }
+  @media (max-width: 820px) { .nav-links { display: none; } }
+  @media (max-width: 420px) { .nav .btn-ghost { display: none; } }
+
+  /* ---------- hero ---------- */
+  .hero { position: relative; padding: 72px 0 40px; }
+  .hero::before { content: ""; position: absolute; inset: -120px 0 auto 0; height: 720px; z-index: -1; pointer-events: none;
+    background:
+      radial-gradient(600px 320px at 18% 20%, var(--glow), transparent 70%),
+      radial-gradient(520px 300px at 85% 10%, color-mix(in srgb, var(--accent-2) 16%, transparent), transparent 70%);
+  }
+  .hero::after { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; opacity: .5;
+    background-image: linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 48px 48px; -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 30%, transparent 75%); mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 30%, transparent 75%); }
+  .hero-grid { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 56px; align-items: center; }
+  @media (max-width: 980px) { .hero-grid { grid-template-columns: minmax(0, 1fr); gap: 40px; } .hero { padding-top: 48px; } }
+  .eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink-2); background: var(--surface); border: 1px solid var(--border); padding: 5px 12px 5px 6px; border-radius: 999px; }
+  .eyebrow .pill { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); padding: 1px 8px; border-radius: 999px; font-size: 12px; }
+  h1.headline { font-size: clamp(40px, 6.2vw, 72px); line-height: 1.02; letter-spacing: -0.035em; margin: 20px 0 20px; font-weight: 800; }
+  .grad { background: linear-gradient(100deg, var(--accent) 10%, var(--accent-2) 90%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lede { font-size: clamp(17px, 1.6vw, 20px); color: var(--ink-2); max-width: 560px; margin: 0 0 30px; }
+  .cta-row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .hero-notes { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 26px; font-size: 14px; color: var(--ink-2); }
+  .hero-notes span { display: inline-flex; align-items: center; gap: 6px; }
+  .hero-notes svg { width: 16px; height: 16px; color: var(--good); flex: none; }
+
+  /* hero visual */
+  .stage { position: relative; }
+  .code-card { background: var(--code-bg); color: var(--code-ink); border-radius: var(--radius); border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 30px 80px -20px rgba(0,0,0,.45), 0 0 0 1px rgba(0,0,0,.04); overflow: hidden; }
+  .code-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.07); font-size: 12px; color: var(--code-muted); }
+  .dots { display: flex; gap: 6px; } .dots i { width: 10px; height: 10px; border-radius: 50%; background: #3a3b40; display: block; }
+  .code-head .file { margin-left: 6px; }
+  .code-card pre { margin: 0; padding: 18px 20px 20px; font-size: 13px; line-height: 1.65; overflow-x: auto; }
+  .k { color: var(--code-key); } .s { color: var(--code-str); } .p { color: var(--code-punct); } .c { color: var(--code-muted); } .f { color: #f2c46d; }
+  .inbox { position: absolute; right: -28px; bottom: -96px; width: min(330px, 78%); background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 24px 60px -18px rgba(0,0,0,.35); padding: 14px 16px; animation: land 1s cubic-bezier(.2,.8,.2,1) .4s both; }
+  @media (max-width: 980px) { .inbox { right: 8px; } .strip { margin-top: 110px; } }
+  @media (max-width: 520px) { .inbox { position: relative; right: auto; bottom: auto; width: 100%; margin-top: 14px; } }
+  @keyframes land { from { opacity: 0; transform: translateY(18px) scale(.97); } to { opacity: 1; transform: none; } }
+  .inbox-top { display: flex; align-items: center; gap: 10px; }
+  .avatar { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 14px; color: #fff; background: linear-gradient(135deg, #f0a23b, #e2553a); flex: none; }
+  .inbox-from { font-weight: 600; font-size: 14px; line-height: 1.2; }
+  .inbox-time { font-size: 12px; color: var(--muted); }
+  .inbox-subject { font-size: 14px; margin: 10px 0 2px; font-weight: 600; }
+  .inbox-snippet { font-size: 13px; color: var(--ink-2); }
+  .inbox-attach { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 12px; border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; color: var(--ink-2); }
+  .inbox-attach b { color: var(--bad); font-size: 10px; letter-spacing: .04em; }
+  .track { display: flex; align-items: center; gap: 6px; margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+  .chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; font-size: 11px; font-weight: 600; color: var(--ink-2); background: var(--surface); }
+  .chip i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; display: block; }
+  .chip.q { animation: step 4.5s infinite; } .chip.se { animation: step 4.5s .6s infinite; } .chip.d { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, transparent); animation: pop 4.5s 1.2s infinite; }
+  @keyframes step { 0%, 8% { opacity: .35; } 14%, 100% { opacity: 1; } }
+  @keyframes pop { 0%, 8% { opacity: .35; transform: scale(.94); } 14% { opacity: 1; transform: scale(1.06); } 20%, 100% { opacity: 1; transform: none; } }
+  .flight { position: absolute; left: -54px; top: -46px; width: 150px; height: 90px; color: var(--accent); opacity: .9; pointer-events: none; }
+  .flight path.trail { stroke-dasharray: 4 6; animation: dash 1.6s linear infinite; }
+  @keyframes dash { to { stroke-dashoffset: -20; } }
+  @media (max-width: 980px) { .flight { display: none; } }
+
+  /* ---------- strip ---------- */
+  .strip { margin-top: 128px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); background: var(--surface); }
+  .strip .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 14px 28px; padding-top: 22px; padding-bottom: 22px; font-size: 14px; color: var(--ink-2); }
+  .strip span { display: inline-flex; align-items: center; gap: 8px; font-weight: 500; }
+  .strip svg { width: 18px; height: 18px; color: var(--accent); flex: none; }
+
+  /* ---------- sections ---------- */
+  section.block { padding: 96px 0 0; }
+  @media (max-width: 640px) { section.block { padding-top: 72px; } }
+  .kicker { font-size: 13px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin: 0 0 12px; }
+  h2.title { font-size: clamp(30px, 3.8vw, 46px); line-height: 1.08; letter-spacing: -0.03em; margin: 0 0 16px; font-weight: 800; max-width: 760px; }
+  .sub { font-size: 18px; color: var(--ink-2); max-width: 640px; margin: 0; }
+
+  /* steps */
+  .steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-top: 44px; counter-reset: s; }
+  @media (max-width: 900px) { .steps { grid-template-columns: minmax(0, 1fr); } }
+  .step { position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 26px 24px 24px; }
+  .step::before { counter-increment: s; content: counter(s); display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; font-weight: 800; font-size: 15px; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); margin-bottom: 16px; }
+  .step h3 { margin: 0 0 6px; font-size: 18px; letter-spacing: -0.01em; }
+  .step p { margin: 0; color: var(--ink-2); font-size: 15px; }
+  .step .time { position: absolute; top: 26px; right: 22px; font-size: 12px; color: var(--muted); font-weight: 600; }
+
+  /* features */
+  .features { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; margin-top: 44px; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  @media (max-width: 900px) { .features { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 600px) { .features { grid-template-columns: minmax(0, 1fr); } }
+  .feature { background: var(--surface); padding: 28px 26px; transition: background .2s; }
+  .feature:hover { background: var(--surface-2); }
+  .icon { width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center; background: color-mix(in srgb, var(--accent) 11%, transparent); color: var(--accent); margin-bottom: 16px; }
+  .icon svg { width: 21px; height: 21px; }
+  .feature h3 { margin: 0 0 6px; font-size: 17px; letter-spacing: -0.01em; }
+  .feature p { margin: 0; color: var(--ink-2); font-size: 15px; }
+
+  /* split rows */
+  .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 56px; align-items: center; margin-top: 44px; }
+  .split.rev > :first-child { order: 2; }
+  @media (max-width: 940px) { .split, .split.rev { grid-template-columns: minmax(0, 1fr); gap: 32px; } .split.rev > :first-child { order: 0; } }
+  .checks { list-style: none; padding: 0; margin: 22px 0 0; display: grid; gap: 14px; }
+  .checks li { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 12px; font-size: 16px; color: var(--ink-2); }
+  .checks li strong { color: var(--ink); }
+  .checks svg { width: 22px; height: 22px; color: var(--good); margin-top: 2px; }
+
+  /* lifecycle visual */
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; box-shadow: 0 20px 50px -30px rgba(0,0,0,.25); }
+  .flow { display: grid; gap: 10px; }
+  .flow-row { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 14px; align-items: center; font-size: 14px; }
+  .flow-row .st { justify-self: start; }
+  .flow-row .what { color: var(--ink-2); }
+  .st { display: inline-flex; align-items: center; gap: 6px; font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; font-weight: 600; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); }
+  .st i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; display: block; }
+  .st.g { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, transparent); }
+  .st.w { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+  .st.b { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, transparent); }
+  .st.n { color: var(--ink-2); }
+  .panel-foot { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 13.5px; color: var(--ink-2); display: flex; gap: 10px; align-items: flex-start; }
+  .panel-foot svg { width: 18px; height: 18px; color: var(--accent); flex: none; margin-top: 2px; }
+
+  /* tabs code */
+  .tabs { display: inline-flex; gap: 4px; padding: 4px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 11px; margin-bottom: 14px; }
+  .tabs button { font: inherit; font-size: 14px; font-weight: 600; color: var(--ink-2); background: transparent; border: 0; border-radius: 8px; padding: 6px 14px; cursor: pointer; }
+  .tabs button[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .code-card[hidden] { display: none; }
+
+  /* log mock */
+  .log { overflow: hidden; padding: 0; }
+  .log-head { display: flex; gap: 6px; flex-wrap: wrap; padding: 14px 16px; border-bottom: 1px solid var(--border); align-items: center; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; font-size: 12px; }
+  .seg span { padding: 4px 10px; border-right: 1px solid var(--border); color: var(--ink-2); }
+  .seg span:last-child { border-right: 0; }
+  .seg span.on { background: var(--accent); color: #fff; }
+  .log-row { display: grid; grid-template-columns: 70px minmax(0, 1.2fr) minmax(0, 1.5fr) auto; gap: 12px; align-items: center; padding: 11px 16px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .log-row:last-child { border-bottom: 0; }
+  .log-row .t { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .log-row .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .log-row .subj { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+  .log-row.sel { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+  @media (max-width: 520px) { .log-row { grid-template-columns: minmax(0, 1fr) auto; } .log-row .t, .log-row .subj { display: none; } }
+
+  /* stat band */
+  .band { margin-top: 96px; background: var(--code-bg); color: #f1f0ec; border-radius: 22px; padding: 56px 48px; position: relative; overflow: hidden; }
+  .band::before { content: ""; position: absolute; inset: 0; background: radial-gradient(500px 260px at 90% 0%, rgba(122,76,240,.35), transparent 70%), radial-gradient(500px 260px at 0% 100%, rgba(42,99,232,.35), transparent 70%); pointer-events: none; }
+  .band > * { position: relative; }
+  .band h2 { font-size: clamp(28px, 3.4vw, 42px); letter-spacing: -0.03em; line-height: 1.1; margin: 0 0 12px; max-width: 720px; }
+  .band p { color: #c4c3bc; font-size: 18px; max-width: 620px; margin: 0; }
+  .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; margin-top: 40px; }
+  @media (max-width: 820px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .band { padding: 40px 24px; } }
+  .stat b { display: block; font-size: clamp(30px, 3.4vw, 40px); letter-spacing: -0.03em; line-height: 1.1; }
+  .stat span { font-size: 14px; color: #a9a8a1; }
+
+  /* faq */
+  .faq { margin-top: 36px; display: grid; gap: 10px; max-width: 860px; }
+  .faq details { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 0 20px; }
+  .faq summary { cursor: pointer; list-style: none; padding: 18px 0; font-weight: 600; font-size: 16px; display: flex; justify-content: space-between; gap: 16px; align-items: center; }
+  .faq summary::-webkit-details-marker { display: none; }
+  .faq summary::after { content: "+"; font-size: 22px; font-weight: 400; color: var(--muted); transition: transform .2s; flex: none; }
+  .faq details[open] summary::after { transform: rotate(45deg); }
+  .faq summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 6px; }
+  .faq details p { margin: 0 0 18px; color: var(--ink-2); }
+
+  /* final cta */
+  .final { text-align: center; padding: 110px 0 100px; }
+  .final h2 { font-size: clamp(34px, 5vw, 60px); letter-spacing: -0.035em; line-height: 1.04; margin: 0 auto 18px; max-width: 820px; font-weight: 800; }
+  .final p { color: var(--ink-2); font-size: 18px; margin: 0 auto 30px; max-width: 560px; }
+  .final .cta-row { justify-content: center; }
+  .mailline { margin-top: 26px; font-size: 14px; color: var(--muted); }
+  .mailline a { color: var(--ink-2); font-weight: 600; }
+  .copy-mail { font: inherit; font-size: 13px; margin-left: 6px; background: none; border: 1px solid var(--border); border-radius: 6px; padding: 1px 8px; color: var(--ink-2); cursor: pointer; }
+  .copy-mail:hover { background: var(--surface-2); }
+
+  footer { border-top: 1px solid var(--border); padding: 28px 0 40px; font-size: 14px; color: var(--muted); }
+  footer .wrap { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+  footer .spacer { flex: 1; }
+  footer a { text-decoration: none; color: var(--ink-2); } footer a:hover { color: var(--ink); }
+
+  .reveal { opacity: 0; transform: translateY(14px); transition: opacity .6s ease, transform .6s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; } }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="currentColor" opacity=".14"/><path d="M7.5 12.5l3 3 6-6.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-bird" viewBox="0 0 32 32"><path d="M3 13.5c3.6-3.9 8-4.4 11.6-.6.6.7 1.1 1.4 1.4 2.2.3-.8.8-1.5 1.4-2.2 3.6-3.8 8-3.3 11.6.6-3.5-1.4-7-.9-9.6 1.9-1.3 1.4-2.4 3.4-3.4 6.1-1-2.7-2.1-4.7-3.4-6.1-2.6-2.8-6.1-3.3-9.6-1.9z" fill="currentColor"/></symbol>
+    <symbol id="i-mail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3.5 7l8.5 6 8.5-6"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6l8-3z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></symbol>
+    <symbol id="i-repeat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"/><path d="M3 11v-1a4 4 0 014-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 01-4 4H3"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.8 3.8 5.8 3.8 9s-1.3 6.2-3.8 9c-2.5-2.8-3.8-5.8-3.8-9S9.5 5.8 12 3z"/></symbol>
+    <symbol id="i-template" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2.5"/><path d="M3 9h18M9 21V9"/></symbol>
+    <symbol id="i-clip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5l-8.6 8.6a5.5 5.5 0 01-7.8-7.8l9.2-9.2a3.7 3.7 0 015.2 5.2l-9.2 9.2a1.8 1.8 0 01-2.6-2.6l8.5-8.5"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
+    <symbol id="i-ban" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M5.7 5.7l12.6 12.6"/></symbol>
+    <symbol id="i-code" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 012-2h13v16H6a2 2 0 00-2 2V5z"/><path d="M4 19a2 2 0 012-2h13"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+  </defs>
+</svg>
+
+<header class="nav" id="nav">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="Pigeon home">
+      <span class="mark"><svg style="color:#fff"><use href="#i-bird"/></svg></span>
+      Pigeon
+    </a>
+    <nav class="nav-links" aria-label="Main">
+      <a href="#how">How it works</a>
+      <a href="#features">Features</a>
+      <a href="#reliability">Reliability</a>
+      <a href="#faq">FAQ</a>
+      <a href="/docs">Docs</a>
+    </nav>
+    <span class="spacer"></span>
+    <a class="btn btn-ghost btn-sm" href="/docs">Read the docs</a>
+    <a class="btn btn-primary btn-sm" data-mail="access" href="mailto:internal.development@onja.org">Get access</a>
+  </div>
+</header>
+
+<main>
+  <!-- ======= HERO ======= -->
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div>
+        <span class="eyebrow"><span class="pill">New</span> Attachments, inline images and a 90-day email log</span>
+        <h1 class="headline">Email that <span class="grad">lands.</span><br>Code that stays small.</h1>
+        <p class="lede">Pigeon sends your app's password resets, receipts and notifications from <em>your own domain</em>. Make one HTTPS call and you're done. Pigeon handles queueing, retries, bounces and deliverability, so you can get back to your product.</p>
+        <div class="cta-row">
+          <a class="btn btn-primary" data-mail="access" href="mailto:internal.development@onja.org">Get your API key <svg><use href="#i-arrow"/></svg></a>
+          <a class="btn btn-ghost" href="/docs">Read the 5-minute guide</a>
+        </div>
+        <div class="hero-notes">
+          <span><svg><use href="#i-check"/></svg>No SDK to install</span>
+          <span><svg><use href="#i-check"/></svg>Node.js, Python, Go</span>
+          <span><svg><use href="#i-check"/></svg>Never sends twice</span>
+        </div>
+      </div>
+
+      <div class="stage" aria-label="Example: sending an email with one API call">
+        <svg class="flight" viewBox="0 0 150 90" fill="none" aria-hidden="true">
+          <path class="trail" d="M6 80 C 40 70, 60 20, 120 22" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <g transform="translate(112 6) scale(1.1)"><path d="M3 13.5c3.6-3.9 8-4.4 11.6-.6.6.7 1.1 1.4 1.4 2.2.3-.8.8-1.5 1.4-2.2 3.6-3.8 8-3.3 11.6.6-3.5-1.4-7-.9-9.6 1.9-1.3 1.4-2.4 3.4-3.4 6.1-1-2.7-2.1-4.7-3.4-6.1-2.6-2.8-6.1-3.3-9.6-1.9z" fill="currentColor"/></g>
+        </svg>
+        <div class="code-card">
+          <div class="code-head"><span class="dots"><i></i><i></i><i></i></span><span class="file">send-receipt.js</span></div>
+<pre><code><span class="k">await</span> <span class="f">fetch</span><span class="p">(</span><span class="s">`${PIGEON_URL}/v1/emails`</span><span class="p">, {</span>
+  method<span class="p">:</span> <span class="s">'POST'</span><span class="p">,</span>
+  headers<span class="p">: {</span> Authorization<span class="p">:</span> <span class="s">`Bearer ${PIGEON_KEY}`</span><span class="p">,</span>
+             <span class="s">'content-type'</span><span class="p">:</span> <span class="s">'application/json'</span> <span class="p">},</span>
+  body<span class="p">:</span> JSON<span class="p">.</span><span class="f">stringify</span><span class="p">({</span>
+    from<span class="p">:</span> <span class="s">'Acme &lt;receipts@acme.io&gt;'</span><span class="p">,</span>
+    to<span class="p">:</span> <span class="p">[</span><span class="s">'ada@customer.com'</span><span class="p">],</span>
+    template<span class="p">:</span> <span class="s">'receipt'</span><span class="p">,</span>
+    template_data<span class="p">: {</span> name<span class="p">:</span> <span class="s">'Ada'</span><span class="p">,</span> total<span class="p">:</span> <span class="s">'€120'</span> <span class="p">},</span>
+    idempotency_key<span class="p">:</span> <span class="s">`order-${order.id}`</span><span class="p">,</span>
+  <span class="p">}),</span>
+<span class="p">});</span>
+<span class="c">// 202 Accepted · { "status": "queued" }</span></code></pre>
+        </div>
+        <div class="inbox" aria-hidden="true">
+          <div class="inbox-top">
+            <span class="avatar">A</span>
+            <div><div class="inbox-from">Acme</div><div class="inbox-time">receipts@acme.io · just now</div></div>
+          </div>
+          <div class="inbox-subject">Your receipt for order #4821</div>
+          <div class="inbox-snippet">Hi Ada, thanks for your order. Your total was €120…</div>
+          <span class="inbox-attach"><b>PDF</b> receipt-4821.pdf</span>
+          <div class="track">
+            <span class="chip q"><i></i>queued</span><span>→</span>
+            <span class="chip se"><i></i>sent</span><span>→</span>
+            <span class="chip d"><i></i>delivered</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="strip">
+      <div class="wrap">
+        <span><svg><use href="#i-globe"/></svg>Your domain, signed and verified</span>
+        <span><svg><use href="#i-template"/></svg>Templates with variables</span>
+        <span><svg><use href="#i-clip"/></svg>Attachments &amp; inline images</span>
+        <span><svg><use href="#i-pulse"/></svg>Delivery tracking</span>
+        <span><svg><use href="#i-eye"/></svg>Email log with previews</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======= HOW IT WORKS ======= -->
+  <section class="block" id="how">
+    <div class="wrap">
+      <p class="kicker reveal">How it works</p>
+      <h2 class="title reveal">From zero to your first email before your coffee gets cold.</h2>
+      <p class="sub reveal">No mail servers, no SMTP settings, no vendor dashboards to learn. Three steps, and two of them we do with you.</p>
+      <div class="steps">
+        <div class="step reveal">
+          <span class="time">1 email</span>
+          <h3>Tell us about your app</h3>
+          <p>Email us and say what you're building. We create a project for you and send you an API key.</p>
+        </div>
+        <div class="step reveal">
+          <span class="time">Usually minutes</span>
+          <h3>Verify your domain</h3>
+          <p>We give you the exact DNS records, already formatted for Namecheap, Cloudflare or GoDaddy. Paste them in and your mail is signed and authenticated (DKIM, SPF and DMARC) as soon as DNS catches up.</p>
+        </div>
+        <div class="step reveal">
+          <span class="time">1 API call</span>
+          <h3>Send</h3>
+          <p>One <code>POST /v1/emails</code> with plain JSON. Copy the ready-made helper for Node.js, Python or Go from the docs.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======= FEATURES ======= -->
+  <section class="block" id="features">
+    <div class="wrap">
+      <p class="kicker reveal">Everything you'd end up building yourself</p>
+      <h2 class="title reveal">All the boring, hard parts of email are already done.</h2>
+      <p class="sub reveal">Sending one email is easy. Sending thousands reliably, without landing in spam or sending anything twice, isn't. Pigeon was built for the second one.</p>
+      <div class="features reveal">
+        <div class="feature"><div class="icon"><svg><use href="#i-bolt"/></svg></div><h3>Fast, non-blocking API</h3><p>The call returns as soon as your email is safely queued. Your request handler never waits on a mail server.</p></div>
+        <div class="feature"><div class="icon"><svg><use href="#i-repeat"/></svg></div><h3>Never sends twice</h3><p>Send an idempotency key, retry as often as you like, and the email still goes out once. Timeouts stop being scary.</p></div>
+        <div class="feature"><div class="icon"><svg><use href="#i-shield"/></svg></div><h3>Deliverability built in</h3><p>Every email is DKIM-signed for your domain, with SPF and DMARC alignment. Bounces and spam complaints are suppressed automatically.</p></div>
+        <div class="feature"><div class="icon"><svg><use href="#i-template"/></svg></div><h3>Templates</h3><p>Store templates once and send with <code>{{variables}}</code>. Preview the rendered result before anything goes out.</p></div>
+        <div class="feature"><div class="icon"><svg><use href="#i-clip"/></svg></div><h3>Attachments &amp; inline images</h3><p>Invoices, tickets and calendar invites: attach up to 10 files. Embed your logo with <code>cid:</code> so it shows even when the reader blocks remote images.</p></div>
+        <div class="feature"><div class="icon"><svg><use href="#i-pulse"/></svg></div><h3>Know what happened</h3><p>Every email has a status: queued, sent, delivered, bounced or complained. Fetch it by id whenever you need to.</p></div>
+        <div class="feature"><div class="icon"><svg><use href="#i-eye"/></svg></div><h3>Email log with previews</h3><p>Search every email by day, domain, status or recipient, and see it exactly as the recipient did. Kept for 90 days.</p></div>
+        <div class="feature"><div class="icon"><svg><use href="#i-ban"/></svg></div><h3>Mistakes caught early</h3><p>Bad addresses, unverified senders and blocked file types are rejected straight away with a clear error code, not hours later.</p></div>
+        <div class="feature"><div class="icon"><svg><use href="#i-code"/></svg></div><h3>No SDK, no lock-in</h3><p>It's plain JSON over HTTPS. Your helper is 30 lines you own, with nothing to install, upgrade or audit.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======= RELIABILITY ======= -->
+  <section class="block" id="reliability">
+    <div class="wrap split">
+      <div>
+        <p class="kicker reveal">Reliability</p>
+        <h2 class="title reveal">Your password reset can't afford to get lost.</h2>
+        <p class="sub reveal">Transactional email is part of your product. When it doesn't arrive, users get locked out, orders feel fake and support tickets pile up. Pigeon is built so that doesn't happen.</p>
+        <ul class="checks reveal">
+          <li><svg><use href="#i-check"/></svg><span><strong>Queued before we say yes.</strong> A <code>202</code> means your email is stored. If something hiccups downstream, it's retried with backoff.</span></li>
+          <li><svg><use href="#i-check"/></svg><span><strong>At most once, even under retries.</strong> Repeat requests with the same idempotency key, and duplicate deliveries inside the pipeline, are detected and dropped.</span></li>
+          <li><svg><use href="#i-check"/></svg><span><strong>A sender reputation that protects everyone.</strong> Addresses that bounce or complain are suppressed for every project, so one bad list can't hurt your deliverability.</span></li>
+          <li><svg><use href="#i-check"/></svg><span><strong>Nothing is silent.</strong> If an email fails for good, it says <code>failed</code> and tells you why in <code>last_error</code>.</span></li>
+        </ul>
+      </div>
+      <div class="panel reveal" aria-label="Email status lifecycle">
+        <div class="flow">
+          <div class="flow-row"><span class="st n"><i></i>queued</span><span class="what">Stored and waiting to send. Your API call has already returned.</span></div>
+          <div class="flow-row"><span class="st n"><i></i>sending</span><span class="what">Claimed by one worker, so it can't be picked up twice.</span></div>
+          <div class="flow-row"><span class="st g"><i></i>sent</span><span class="what">Handed off for delivery to the recipient's mail server.</span></div>
+          <div class="flow-row"><span class="st g"><i></i>delivered</span><span class="what">The recipient's server accepted it.</span></div>
+          <div class="flow-row"><span class="st b"><i></i>bounced</span><span class="what">The address doesn't exist, so it's suppressed from now on.</span></div>
+          <div class="flow-row"><span class="st w"><i></i>suppressed</span><span class="what">Skipped to protect your reputation, and listed in the response.</span></div>
+        </div>
+        <div class="panel-foot"><svg><use href="#i-info"/></svg><span>Temporary failures retry automatically with exponential backoff, so you don't need a job queue of your own.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======= DX ======= -->
+  <section class="block" id="dx">
+    <div class="wrap split rev">
+      <div>
+        <p class="kicker reveal">Developer experience</p>
+        <h2 class="title reveal">The API you'd design if you were in a hurry and had good taste.</h2>
+        <p class="sub reveal">One resource, predictable JSON and error codes you can switch on. The docs give you a complete, copy-paste client for your language, with retries and idempotency already wired in.</p>
+        <ul class="checks reveal">
+          <li><svg><use href="#i-check"/></svg><span><strong>Errors that tell you what to fix:</strong> <code>sender_domain_not_allowed</code>, <code>invalid_recipient</code> with the bad addresses listed, <code>attachments_too_large</code>, and more.</span></li>
+          <li><svg><use href="#i-check"/></svg><span><strong>Works from any backend:</strong> Node.js, Python, Go, or anything that can make an HTTPS request.</span></li>
+          <li><svg><use href="#i-check"/></svg><span><strong>Tags for your own reporting:</strong> label emails with <code>invoice: 42</code> and find them later.</span></li>
+        </ul>
+      </div>
+      <div class="reveal">
+        <div class="tabs" role="tablist" aria-label="Language">
+          <button type="button" role="tab" aria-selected="true" data-lang="python">Python</button>
+          <button type="button" role="tab" aria-selected="false" data-lang="go">Go</button>
+          <button type="button" role="tab" aria-selected="false" data-lang="curl">curl</button>
+        </div>
+        <div class="code-card" data-code="python">
+          <div class="code-head"><span class="dots"><i></i><i></i><i></i></span><span class="file">welcome.py</span></div>
+<pre><code><span class="k">from</span> pigeon <span class="k">import</span> api
+
+api<span class="p">(</span><span class="s">"POST"</span><span class="p">,</span> <span class="s">"/v1/emails"</span><span class="p">, {</span>
+    <span class="s">"from"</span><span class="p">:</span> <span class="s">"Acme &lt;hello@acme.io&gt;"</span><span class="p">,</span>
+    <span class="s">"to"</span><span class="p">: [</span>user<span class="p">.</span>email<span class="p">],</span>
+    <span class="s">"template"</span><span class="p">:</span> <span class="s">"welcome"</span><span class="p">,</span>
+    <span class="s">"template_data"</span><span class="p">: {</span><span class="s">"name"</span><span class="p">:</span> user<span class="p">.</span>first_name<span class="p">},</span>
+    <span class="s">"idempotency_key"</span><span class="p">:</span> <span class="s">f"welcome-</span><span class="p">{</span>user<span class="p">.</span>id<span class="p">}</span><span class="s">"</span><span class="p">,</span>
+<span class="p">})</span></code></pre>
+        </div>
+        <div class="code-card" data-code="go" hidden>
+          <div class="code-head"><span class="dots"><i></i><i></i><i></i></span><span class="file">invoice.go</span></div>
+<pre><code>pdf<span class="p">,</span> _ <span class="p">:=</span> os<span class="p">.</span><span class="f">ReadFile</span><span class="p">(</span><span class="s">"invoice-42.pdf"</span><span class="p">)</span>
+
+email<span class="p">,</span> err <span class="p">:=</span> client<span class="p">.</span><span class="f">Send</span><span class="p">(</span>ctx<span class="p">,</span> pigeon<span class="p">.</span>SendRequest<span class="p">{</span>
+	From<span class="p">:</span>    <span class="s">"Billing &lt;billing@acme.io&gt;"</span><span class="p">,</span>
+	To<span class="p">:</span>      <span class="p">[]</span><span class="k">string</span><span class="p">{</span><span class="s">"ada@customer.com"</span><span class="p">},</span>
+	Subject<span class="p">:</span> <span class="s">"Your invoice #42"</span><span class="p">,</span>
+	Text<span class="p">:</span>    <span class="s">"Hi Ada, your invoice is attached."</span><span class="p">,</span>
+	Attachments<span class="p">: []</span>pigeon<span class="p">.</span>Attachment<span class="p">{</span>
+		<span class="p">{</span>Filename<span class="p">:</span> <span class="s">"invoice-42.pdf"</span><span class="p">,</span> Content<span class="p">:</span> pdf<span class="p">},</span>
+	<span class="p">},</span>
+	IdempotencyKey<span class="p">:</span> <span class="s">"invoice-42-sent"</span><span class="p">,</span>
+<span class="p">})</span></code></pre>
+        </div>
+        <div class="code-card" data-code="curl" hidden>
+          <div class="code-head"><span class="dots"><i></i><i></i><i></i></span><span class="file">terminal</span></div>
+<pre><code><span class="f">curl</span> -X POST <span class="s">"$PIGEON_URL/v1/emails"</span> \
+  -H <span class="s">"Authorization: Bearer $PIGEON_KEY"</span> \
+  -H <span class="s">"content-type: application/json"</span> \
+  -d <span class="s">'{
+    "from": "Acme &lt;no-reply@acme.io&gt;",
+    "to": ["ada@customer.com"],
+    "subject": "Your login code",
+    "text": "Your code is 482913. It expires in 10 minutes."
+  }'</span>
+
+<span class="c"># → 202 {"id": "8f1c…", "status": "queued", …}</span></code></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======= VISIBILITY ======= -->
+  <section class="block" id="visibility">
+    <div class="wrap split">
+      <div>
+        <p class="kicker reveal">Visibility</p>
+        <h2 class="title reveal">"Did the email go out?" Now you can answer in seconds.</h2>
+        <p class="sub reveal">Every email sent from your domain is logged and can be previewed for 90 days. Filter by today, last week, the last 30 days or any date range, then open the email and see exactly what the user received.</p>
+        <ul class="checks reveal">
+          <li><svg><use href="#i-check"/></svg><span><strong>Search by domain, status, recipient or subject.</strong> Find the one email a user says never arrived.</span></li>
+          <li><svg><use href="#i-check"/></svg><span><strong>Faithful previews,</strong> including inline images and attachments, with the full delivery timeline.</span></li>
+          <li><svg><use href="#i-check"/></svg><span><strong>Safe by design:</strong> previews never run scripts, follow links or trigger tracking pixels.</span></li>
+        </ul>
+      </div>
+      <div class="panel log reveal" aria-label="Example email log">
+        <div class="log-head">
+          <div class="seg"><span>Today</span><span>7 days</span><span class="on">30 days</span><span>Custom</span></div>
+          <span class="chip"><i style="color:var(--good)"></i>delivered 1,284</span>
+          <span class="chip"><i style="color:var(--bad)"></i>bounced 3</span>
+        </div>
+        <div class="log-row sel"><span class="t">09:41</span><span class="who">ada@customer.com</span><span class="subj">Your receipt for order #4821</span><span class="st g"><i></i>delivered</span></div>
+        <div class="log-row"><span class="t">09:38</span><span class="who">grace@startup.dev</span><span class="subj">Reset your password</span><span class="st g"><i></i>delivered</span></div>
+        <div class="log-row"><span class="t">09:12</span><span class="who">alan@typo-domian.com</span><span class="subj">Welcome to Acme</span><span class="st b"><i></i>bounced</span></div>
+        <div class="log-row"><span class="t">08:57</span><span class="who">linus@kernel.example</span><span class="subj">Your login code</span><span class="st g"><i></i>delivered</span></div>
+        <div class="log-row"><span class="t">08:30</span><span class="who">margaret@apollo.example</span><span class="subj">Invoice #42 is ready</span><span class="st g"><i></i>sent</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======= BAND ======= -->
+  <section class="wrap">
+    <div class="band reveal">
+      <h2>Built by Onja, for the teams shipping real products.</h2>
+      <p>Pigeon is Onja's own email infrastructure, and now it can power your app too. When you need help, there's a team you can actually talk to.</p>
+      <div class="stats">
+        <div class="stat"><b>1</b><span>API call to send</span></div>
+        <div class="stat"><b>0</b><span>SDKs to install</span></div>
+        <div class="stat"><b>3</b><span>languages with ready clients</span></div>
+        <div class="stat"><b>90</b><span>days of searchable history</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======= FAQ ======= -->
+  <section class="block" id="faq">
+    <div class="wrap">
+      <p class="kicker reveal">FAQ</p>
+      <h2 class="title reveal">Questions developers ask first.</h2>
+      <div class="faq reveal">
+        <details><summary>Can I send from my own domain?</summary><p>Yes, and you should. Your emails come from <code>you@yourdomain.com</code>, signed with DKIM for your domain. We give you the DNS records to add, and you can use subdomains like <code>mail.yourdomain.com</code> too.</p></details>
+        <details><summary>What kind of email is Pigeon for?</summary><p>Transactional email: password resets, login codes, receipts, invoices, notifications and anything else your app sends in response to something a user did. It isn't a newsletter or bulk marketing tool.</p></details>
+        <details><summary>Do I need an SDK or a special library?</summary><p>No. It's JSON over HTTPS. The docs include a complete, copy-paste helper for Node.js, Python and Go that handles auth, errors and safe retries. If your language can make an HTTP request, you can use Pigeon.</p></details>
+        <details><summary>What happens if my request times out?</summary><p>Retry it with the same <code>idempotency_key</code>. If the first request did get through, Pigeon returns the original email and doesn't send it again. If it didn't, the email is sent now. Either way, your user gets exactly one.</p></details>
+        <details><summary>Can I send attachments?</summary><p>Yes. Up to 10 files and 10 MB per email, including inline images for your HTML. Executables and scripts are rejected up front so they can't hurt your deliverability.</p></details>
+        <details><summary>How do I know whether an email was delivered?</summary><p>Fetch it by id at any time to get its status: <code>queued</code>, <code>sent</code>, <code>delivered</code>, <code>bounced</code> or <code>complained</code>. The full event timeline is there too, and every email is also visible in the log, with a preview, for 90 days.</p></details>
+        <details><summary>What are the limits?</summary><p>Up to 50 recipients per email across to, cc and bcc, 10 attachments totalling 10 MB, and emails are kept for 90 days. If you need something different, talk to us.</p></details>
+        <details><summary>How do I get started, or get help?</summary><p>Email <a href="mailto:internal.development@onja.org">internal.development@onja.org</a>. Tell us about your app and the domain you want to send from, and we'll set you up. The same address works for questions and support.</p></details>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======= FINAL CTA ======= -->
+  <section class="final" id="contact">
+    <div class="wrap">
+      <h2>Stop babysitting email. <span class="grad">Ship the feature.</span></h2>
+      <p>Tell us what you're building and we'll get you set up. Most teams send their first email the same day.</p>
+      <div class="cta-row">
+        <a class="btn btn-primary" data-mail="access" href="mailto:internal.development@onja.org"><svg><use href="#i-mail"/></svg>Request access</a>
+        <a class="btn btn-ghost" data-mail="question" href="mailto:internal.development@onja.org">Ask a question</a>
+      </div>
+      <p class="mailline">Or write to us directly at <a href="mailto:internal.development@onja.org">internal.development@onja.org</a><button type="button" class="copy-mail" id="copy-mail">Copy</button></p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <a class="brand" href="/" style="font-size:15px"><span class="mark" style="width:24px;height:24px;border-radius:7px"><svg style="color:#fff;width:16px;height:16px"><use href="#i-bird"/></svg></span>Pigeon</a>
+    <span>Made by Onja</span>
+    <span class="spacer"></span>
+    <a href="/docs">Docs</a>
+    <a href="mailto:internal.development@onja.org">Support</a>
+    <a href="/admin/login">Admin sign in</a>
+  </div>
+</footer>
+
+<script>
+(() => {
+  'use strict';
+  const MAIL = 'internal.development@onja.org';
+  const TEMPLATES = {
+    access: {
+      subject: 'Pigeon access request',
+      body: 'Hi Pigeon team,\n\nWe would like to send email with Pigeon.\n\nApp / project name:\nWhat it sends (e.g. password resets, receipts):\nDomain to send from:\nRough volume per month:\nTech stack:\n\nThanks!',
+    },
+    question: { subject: 'Question about Pigeon', body: '' },
+  };
+  for (const a of document.querySelectorAll('a[data-mail]')) {
+    const t = TEMPLATES[a.dataset.mail];
+    if (!t) continue;
+    const q = new URLSearchParams({ subject: t.subject, ...(t.body ? { body: t.body } : {}) }).toString().replace(/\+/g, '%20');
+    a.href = `mailto:${MAIL}?${q}`;
+  }
+
+  const copy = document.getElementById('copy-mail');
+  copy.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(MAIL); copy.textContent = 'Copied'; }
+    catch { copy.textContent = 'Select & copy'; }
+    setTimeout(() => { copy.textContent = 'Copy'; }, 1600);
+  });
+
+  const nav = document.getElementById('nav');
+  const onScroll = () => nav.classList.toggle('scrolled', window.scrollY > 8);
+  window.addEventListener('scroll', onScroll, { passive: true }); onScroll();
+
+  const tabs = document.querySelectorAll('.tabs button');
+  for (const b of tabs) b.addEventListener('click', () => {
+    for (const x of tabs) x.setAttribute('aria-selected', String(x === b));
+    for (const c of document.querySelectorAll('[data-code]')) c.hidden = c.dataset.code !== b.dataset.lang;
+  });
+
+  const els = document.querySelectorAll('.reveal');
+  if ('IntersectionObserver' in window && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+    }, { rootMargin: '0px 0px -8% 0px' });
+    els.forEach((el) => io.observe(el));
+  } else {
+    els.forEach((el) => el.classList.add('in'));
+  }
+})();
+</script>
+</body>
+</html>

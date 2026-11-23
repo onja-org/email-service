@@ -61,3 +61,43 @@ describe('interpretSesEvent', () => {
     expect(it_).toMatchObject({ type: 'Delivery', sesMessageId: null, taggedMessageId: null, newStatus: 'delivered' });
   });
 });
+
+describe('public event view', () => {
+  it('summarises events without the raw provider notification', async () => {
+    const { toPublicEvent, neutralize } = await import('../src/services/events.js');
+    const created_at = new Date('2026-11-23T10:00:00Z');
+    const bounce = toPublicEvent({
+      id: '7',
+      event_type: 'Bounce',
+      created_at,
+      payload: {
+        eventType: 'Bounce',
+        mail: { messageId: 'ses-1', sourceArn: 'arn:aws:ses:eu-west-1:123:identity/acme.io' },
+        bounce: {
+          bounceType: 'Permanent',
+          bounceSubType: 'OnAccountSuppressionList',
+          bouncedRecipients: [{ emailAddress: 'a@b.co', diagnosticCode: 'Amazon SES has suppressed sending to this address' }],
+        },
+      },
+    });
+    expect(bounce).toEqual({
+      id: '7',
+      event_type: 'Bounce',
+      created_at,
+      details: {
+        bounce_type: 'permanent',
+        bounce_subtype: 'OnAccountSuppressionList',
+        recipients: [{ email: 'a@b.co', diagnostic: 'Pigeon has suppressed sending to this address' }],
+      },
+    });
+    expect(JSON.stringify(bounce)).not.toMatch(/\bSES\b|amazon|aws|arn:/i);
+
+    expect(toPublicEvent({ id: '8', event_type: 'Delivery', created_at, payload: { delivery: { recipients: ['a@b.co'] } } }).details)
+      .toEqual({ recipients: ['a@b.co'] });
+    expect(toPublicEvent({ id: '9', event_type: 'Send', created_at, payload: { mail: {} } }).details).toEqual({});
+    expect(neutralize('MessageRejected: Email address is not verified. AWS region EU-WEST-1')).toBe(
+      'MessageRejected: Email address is not verified. region EU-WEST-1',
+    );
+    expect(neutralize(null)).toBeNull();
+  });
+});

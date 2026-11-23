@@ -117,3 +117,76 @@ export async function applySesEvent(db: Db, ev: SesEvent): Promise<Interpretatio
 
   return it;
 }
+
+// ---- Public (project API) view of events -----------------------------------------
+
+/** Removes the sending provider's name from text shown to projects. */
+export function neutralize(text: string): string;
+export function neutralize(text: string | null): string | null;
+export function neutralize(text: string | null): string | null {
+  if (text == null) return text;
+  return text
+    .replace(/\bAmazon\s+(Simple\s+Email\s+Service|SES)\b/gi, 'Pigeon')
+    .replace(/\bAmazon\b|\bAWS\b/gi, '')
+    .replace(/\bSES\b/g, 'Pigeon')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+interface ProviderEventPayload extends SesEvent {
+  delivery?: { recipients?: string[] };
+  deliveryDelay?: { delayType?: string; delayedRecipients?: { emailAddress: string }[] };
+}
+
+export interface PublicEvent {
+  id: string;
+  event_type: string;
+  created_at: Date;
+  /** A provider-neutral summary of what happened. Never the raw notification. */
+  details: Record<string, unknown>;
+}
+
+/**
+ * What a project sees for a delivery event: the type, when, and the facts it
+ * needs (who, bounce kind, reason), without the provider's raw notification.
+ */
+export function toPublicEvent(row: { id: string; event_type: string; payload: unknown; created_at: Date }): PublicEvent {
+  const p = (row.payload ?? {}) as ProviderEventPayload;
+  let details: Record<string, unknown> = {};
+  switch (row.event_type) {
+    case 'Delivery':
+      details = { recipients: p.delivery?.recipients ?? [] };
+      break;
+    case 'Bounce':
+      details = {
+        bounce_type: p.bounce?.bounceType?.toLowerCase() ?? null,
+        bounce_subtype: p.bounce?.bounceSubType ?? null,
+        recipients: (p.bounce?.bouncedRecipients ?? []).map((r) => ({
+          email: r.emailAddress,
+          diagnostic: neutralize(r.diagnosticCode ?? null),
+        })),
+      };
+      break;
+    case 'Complaint':
+      details = {
+        feedback_type: p.complaint?.complaintFeedbackType ?? null,
+        recipients: (p.complaint?.complainedRecipients ?? []).map((r) => r.emailAddress),
+      };
+      break;
+    case 'DeliveryDelay':
+      details = {
+        delay_type: p.deliveryDelay?.delayType ?? null,
+        recipients: (p.deliveryDelay?.delayedRecipients ?? []).map((r) => r.emailAddress),
+      };
+      break;
+    case 'Reject':
+      details = { reason: neutralize(p.reject?.reason ?? null) };
+      break;
+    case 'RenderingFailure':
+      details = { error: neutralize(p.failure?.errorMessage ?? null) };
+      break;
+    default:
+      break;
+  }
+  return { id: String(row.id), event_type: row.event_type, created_at: row.created_at, details };
+}

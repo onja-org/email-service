@@ -37,7 +37,7 @@ export const uiRoutes: FastifyPluginAsync = async (app) => {
   app.get('/admin/login', serve('login.html'));
   app.get('/admin/ui', serve('admin.html'));
   app.get('/dashboard', serve('dashboard.html'));
-  // Public developer guide for projects integrating with the API.
-  app.get('/', serve('docs.html'));
+  // Public marketing page, and the developer guide for projects integrating with the API.
+  app.get('/', serve('home.html'));
   app.get('/docs', serve('docs.html'));
 };

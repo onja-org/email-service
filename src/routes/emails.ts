@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { requireApiKey } from '../lib/auth.js';
 import { notFound } from '../lib/errors.js';
 import { submitEmail } from '../services/send.js';
+import { neutralize, toPublicEvent } from '../services/events.js';
 import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS } from '../lib/attachments.js';
 import {
   getMessage,
@@ -63,7 +64,11 @@ const listQuerySchema = z.object({
   to: z.string().optional(),
 });
 
-/** Public representation of a message: omits bodies by default to keep lists small. */
+/**
+ * Public representation of a message: omits bodies by default to keep lists small.
+ * Provider-specific fields (the provider's message id, raw notifications) are left
+ * out; admin routes add them back.
+ */
 export function serializeMessage(m: MessageRow, includeBody = false, attachments?: AttachmentMeta[]) {
   return {
     id: m.id,
@@ -77,9 +82,8 @@ export function serializeMessage(m: MessageRow, includeBody = false, attachments
     subject: m.subject,
     template: m.template_name,
     tags: m.tags,
-    ses_message_id: m.ses_message_id,
     attempts: m.attempts,
-    last_error: m.last_error,
+    last_error: neutralize(m.last_error),
     idempotency_key: m.idempotency_key,
     created_at: m.created_at,
     sent_at: m.sent_at,
@@ -128,6 +132,6 @@ export const emailRoutes: FastifyPluginAsync = async (instance) => {
   app.get('/emails/:id/events', { schema: { params: z.object({ id: z.string().uuid() }) } }, async (req) => {
     const m = await getMessage(app.db, req.params.id, req.auth!.project.id);
     if (!m) throw notFound('Email');
-    return { data: await listEvents(app.db, m.id) };
+    return { data: (await listEvents(app.db, m.id)).map(toPublicEvent) };
   });
 };

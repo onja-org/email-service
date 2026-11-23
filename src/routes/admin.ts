@@ -252,6 +252,9 @@ export const adminRoutes: FastifyPluginAsync = async (instance) => {
     const { rows } = await app.db.query<{ slug: string }>('SELECT slug FROM projects WHERE id = $1', [m.project_id]);
     return {
       ...serializeMessage(m, true, await listAttachmentMeta(app.db, m.id)),
+      // Operators see the raw provider details the project API hides.
+      last_error: m.last_error,
+      ses_message_id: m.ses_message_id,
       project: rows[0]?.slug ?? null,
       from_domain: m.from_domain,
       has_remote_images: hasRemoteImages(m.html),

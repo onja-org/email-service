@@ -121,6 +121,12 @@ const fakeDb = {
       const rows = attachmentRows.filter((a) => a.message_id === params[0] && a.content_id);
       return { rows, rowCount: rows.length };
     }
+    if (s.startsWith('SELECT id, event_type, payload, created_at FROM message_events')) {
+      const rows = params[0] === inserted[0]?.id
+        ? [{ id: '1', event_type: 'Send', created_at: new Date(), payload: { mail: { sourceArn: 'arn:aws:ses:eu-west-1:1:identity/x' } } }]
+        : [];
+      return { rows, rowCount: rows.length };
+    }
     if (s.startsWith('SELECT * FROM messages WHERE id = $1')) {
       // Admin lookups pass a null project id.
       const row = inserted.find((m) => m.id === params[0] && (params[1] == null || m.project_id === params[1]));
@@ -209,8 +215,14 @@ describe('admin UI sessions', () => {
       expect(res.headers['content-security-policy']).toContain("frame-ancestors 'none'");
     }
     const home = await app.inject({ method: 'GET', url: '/' });
-    expect(home.body).toContain('<title>Email service developer guide</title>');
-    expect(home.body).toContain('href="/admin/login"');
+    expect(home.body).toContain('<title>Pigeon · Email that lands</title>');
+    expect(home.body).toContain('internal.development@onja.org');
+    expect(home.body).toContain('href="/docs"');
+    const docs = await app.inject({ method: 'GET', url: '/docs' });
+    expect(docs.body).toContain('<title>Pigeon developer guide</title>');
+    expect(docs.body).toContain('href="/admin/login"');
+    // Public pages never name the sending provider.
+    for (const body of [home.body, docs.body]) expect(body).not.toMatch(/\bSES\b|amazon|aws/i);
   });
 
   it('rejects a wrong token and locks out after repeated failures', async () => {
@@ -269,6 +281,13 @@ describe('POST /v1/emails', () => {
     const detail = await app.inject({ method: 'GET', url: `/v1/emails/${body.id}`, headers: auth });
     expect(detail.statusCode).toBe(200);
     expect(detail.json().text).toBe('Hi');
+
+    // The project API never exposes the sending provider.
+    expect(detail.json()).not.toHaveProperty('ses_message_id');
+    const events = await app.inject({ method: 'GET', url: `/v1/emails/${body.id}/events`, headers: auth });
+    expect(events.json().data[0]).toMatchObject({ event_type: 'Send', details: {} });
+    expect(events.json().data[0]).not.toHaveProperty('payload');
+    for (const r of [res, detail, events]) expect(r.body).not.toMatch(/\bSES\b|amazon|aws|arn:/i);
   });
 
   it('stores attachments, reports their metadata, and does not duplicate them on a replay', async () => {
@@ -441,7 +460,7 @@ describe('POST /v1/emails', () => {
     const page = await app.inject({ method: 'GET', url: '/dashboard' });
     expect(page.statusCode).toBe(200);
     expect(page.headers['content-type']).toContain('text/html');
-    expect(page.body).toContain('<title>Email delivery</title>');
+    expect(page.body).toContain('<title>Pigeon · Delivery</title>');
 
     const noToken = await app.inject({ method: 'GET', url: '/admin/stats/summary' });
     expect(noToken.statusCode).toBe(401);

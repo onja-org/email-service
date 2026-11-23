@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Email service developer guide</title>
-<meta name="description" content="Send transactional email from Node.js, Python and Go through the shared email service.">
+<title>Pigeon developer guide</title>
+<meta name="description" content="Send transactional email from Node.js, Python and Go with Pigeon: one HTTPS call, no SDK.">
 <link rel="stylesheet" href="/ui.css">
 <style>
   main { max-width: 1180px; }
@@ -59,6 +59,7 @@
   article td code, article th code { white-space: nowrap; }
   .status-flow { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; overflow-x: auto; white-space: pre; }
 
+  .brandlink { text-decoration: none; }
   .signin { display: inline-flex; align-items: center; height: 32px; padding: 0 14px; border-radius: 8px; background: var(--accent); color: #fff; text-decoration: none; font-weight: 600; font-size: 13px; }
   .signin:hover { filter: brightness(1.08); }
   .signin:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -73,7 +74,7 @@
 <body data-lang="node">
 <main>
   <div class="topbar">
-    <h1>Email service</h1>
+    <a href="/" class="brandlink"><h1>Pigeon</h1></a>
     <span class="sub">Developer guide</span>
     <span class="spacer"></span>
     <a class="signin" id="signin" href="/admin/login">Sign in</a>
@@ -101,7 +102,7 @@
     <article>
       <div class="hero">
         <h1>Send email from your app</h1>
-        <p>This service sends your project's transactional email. You make one HTTPS call and the service validates, queues, sends, and tracks delivery. It also skips addresses that have bounced or complained. This guide covers Node.js, Python and Go.</p>
+        <p>Pigeon sends your project's transactional email. You make one HTTPS call and the service validates, queues, sends, and tracks delivery. It also skips addresses that have bounced or complained. This guide covers Node.js, Python and Go.</p>
         <div class="base"><span class="muted">Base URL</span> <code class="origin">https://email.example.com</code></div>
       </div>
 
@@ -124,8 +125,8 @@
         <p>Give your app both values as environment variables:</p>
         <div class="code" data-lang="shell">
           <div class="code-head"><span class="file">.env</span><button type="button" class="copy small">Copy</button></div>
-          <pre><code>EMAIL_SERVICE_URL=<span class="origin">https://email.example.com</span>
-EMAIL_SERVICE_KEY=es_live_xxxxxxxxxxxxxxxxxxxxxxxx</code></pre>
+          <pre><code>PIGEON_URL=<span class="origin">https://email.example.com</span>
+PIGEON_KEY=es_live_xxxxxxxxxxxxxxxxxxxxxxxx</code></pre>
         </div>
         <div class="callout warn"><p>Treat the key like a password. Use it only from server-side code, never from a browser or mobile app. Anyone holding it can send mail as your project.</p></div>
       </section>
@@ -135,9 +136,9 @@ EMAIL_SERVICE_KEY=es_live_xxxxxxxxxxxxxxxxxxxxxxxx</code></pre>
         <p>The API is plain JSON over HTTPS, so you don't need an SDK. Copy this small helper into your project. It adds the key to every request and turns error responses into an exception you can inspect. Every example below uses it.</p>
 
         <div class="code" data-lang="node">
-          <div class="code-head"><span class="file">emailService.js</span><button type="button" class="copy small">Copy</button></div>
-          <pre><code>const BASE = process.env.EMAIL_SERVICE_URL.replace(/\/+$/, '');
-const KEY = process.env.EMAIL_SERVICE_KEY;
+          <div class="code-head"><span class="file">pigeon.js</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>const BASE = process.env.PIGEON_URL.replace(/\/+$/, '');
+const KEY = process.env.PIGEON_KEY;
 
 export class EmailServiceError extends Error {
   constructor(status, body) {
@@ -170,13 +171,13 @@ export async function api(method, path, body) {
           <pre><code>pip install requests</code></pre>
         </div>
         <div class="code" data-lang="python">
-          <div class="code-head"><span class="file">email_service.py</span><button type="button" class="copy small">Copy</button></div>
+          <div class="code-head"><span class="file">pigeon.py</span><button type="button" class="copy small">Copy</button></div>
           <pre><code>import os
 
 import requests
 
-BASE = os.environ["EMAIL_SERVICE_URL"].rstrip("/")
-KEY = os.environ["EMAIL_SERVICE_KEY"]
+BASE = os.environ["PIGEON_URL"].rstrip("/")
+KEY = os.environ["PIGEON_KEY"]
 
 _session = requests.Session()
 _session.headers["Authorization"] = f"Bearer {KEY}"
@@ -205,8 +206,8 @@ def api(method, path, body=None, params=None):
         </div>
 
         <div class="code" data-lang="go">
-          <div class="code-head"><span class="file">emailservice/client.go</span><button type="button" class="copy small">Copy</button></div>
-          <pre><code>package emailservice
+          <div class="code-head"><span class="file">pigeon/client.go</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>package pigeon
 
 import (
 	"bytes"
@@ -226,11 +227,11 @@ type Client struct {
 	HTTP    *http.Client
 }
 
-// New reads EMAIL_SERVICE_URL and EMAIL_SERVICE_KEY from the environment.
+// New reads PIGEON_URL and PIGEON_KEY from the environment.
 func New() *Client {
 	return &amp;Client{
-		BaseURL: strings.TrimRight(os.Getenv("EMAIL_SERVICE_URL"), "/"),
-		APIKey:  os.Getenv("EMAIL_SERVICE_KEY"),
+		BaseURL: strings.TrimRight(os.Getenv("PIGEON_URL"), "/"),
+		APIKey:  os.Getenv("PIGEON_KEY"),
 		HTTP:    &amp;http.Client{Timeout: 10 * time.Second},
 	}
 }
@@ -290,8 +291,8 @@ func (c *Client) Do(ctx context.Context, method, path string, in, out any) error
         </div>
         <p data-lang-note="go" hidden>Go 1.21 or later, standard library only. Next, add the request and response types. The <code>omitempty</code> tags matter: optional fields must be left out of the JSON, not sent as <code>null</code>.</p>
         <div class="code" data-lang="go">
-          <div class="code-head"><span class="file">emailservice/types.go</span><button type="button" class="copy small">Copy</button></div>
-          <pre><code>package emailservice
+          <div class="code-head"><span class="file">pigeon/types.go</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>package pigeon
 
 import (
 	"context"
@@ -371,7 +372,7 @@ func (c *Client) GetEmail(ctx context.Context, id string) (*Email, error) {
 
         <div class="code" data-lang="node">
           <div class="code-head"><span class="file">send.js</span><button type="button" class="copy small">Copy</button></div>
-          <pre><code>import { api } from './emailService.js';
+          <pre><code>import { api } from './pigeon.js';
 
 const email = await api('POST', '/v1/emails', {
   from: 'Billing &lt;no-reply@billing.example.com&gt;',
@@ -387,7 +388,7 @@ console.log(email.id, email.status); // "8f1c…", "queued"</code></pre>
         </div>
         <div class="code" data-lang="python">
           <div class="code-head"><span class="file">send.py</span><button type="button" class="copy small">Copy</button></div>
-          <pre><code>from email_service import api
+          <pre><code>from pigeon import api
 
 email = api("POST", "/v1/emails", {
     "from": "Billing &lt;no-reply@billing.example.com&gt;",
@@ -410,13 +411,13 @@ import (
 	"fmt"
 	"log"
 
-	"yourapp/emailservice"
+	"yourapp/pigeon"
 )
 
 func main() {
-	client := emailservice.New()
+	client := pigeon.New()
 
-	email, err := client.Send(context.Background(), emailservice.SendRequest{
+	email, err := client.Send(context.Background(), pigeon.SendRequest{
 		From:    "Billing &lt;no-reply@billing.example.com&gt;",
 		To:      []string{"ada@customer.com"},
 		ReplyTo: []string{"support@example.com"},
@@ -460,7 +461,7 @@ func main() {
         <div class="code" data-lang="node">
           <div class="code-head"><span class="file">send-with-attachment.js</span><button type="button" class="copy small">Copy</button></div>
           <pre><code>import { readFile } from 'node:fs/promises';
-import { api } from './emailService.js';
+import { api } from './pigeon.js';
 
 const pdf = await readFile('invoice-42.pdf');
 
@@ -478,7 +479,7 @@ const email = await api('POST', '/v1/emails', {
         <div class="code" data-lang="python">
           <div class="code-head"><span class="file">send_with_attachment.py</span><button type="button" class="copy small">Copy</button></div>
           <pre><code>import base64
-from email_service import api
+from pigeon import api
 
 with open("invoice-42.pdf", "rb") as f:
     pdf = base64.b64encode(f.read()).decode("ascii")
@@ -502,12 +503,12 @@ if err != nil {
 }
 
 // Pass the raw bytes: encoding/json turns a []byte into base64 for you.
-email, err := client.Send(ctx, emailservice.SendRequest{
+email, err := client.Send(ctx, pigeon.SendRequest{
 	From:    "Billing &lt;no-reply@billing.example.com&gt;",
 	To:      []string{"ada@customer.com"},
 	Subject: "Your invoice #42",
 	Text:    "Hi Ada, your invoice is attached.",
-	Attachments: []emailservice.Attachment{
+	Attachments: []pigeon.Attachment{
 		{Filename: "invoice-42.pdf", Content: pdf},
 	},
 	IdempotencyKey: "invoice-42-sent",
@@ -547,7 +548,7 @@ email, err := client.Send(ctx, emailservice.SendRequest{
         <ul>
           <li>Up to <strong>10 files</strong> per email.</li>
           <li>Up to <strong>10 MB in total</strong>, measured before base64 encoding. Base64 adds about a third, so the request body can be around 14 MB. For bigger files, upload them somewhere and send a link instead.</li>
-          <li>Amazon SES refuses some file types, mostly executables and scripts such as <code>.exe</code>, <code>.bat</code>, <code>.cmd</code>, <code>.js</code>, <code>.vbs</code>, <code>.ps1</code>, <code>.msi</code> and <code>.scr</code>. The API rejects these straight away with <code>blocked_attachment_type</code>, so they never get queued. See the <a href="https://docs.aws.amazon.com/ses/latest/dg/mime-types.html" rel="noopener">full list of unsupported types</a>. Some mailbox providers also block archives such as <code>.zip</code> that contain executables.</li>
+          <li>Executables and scripts can't be sent, because mailbox providers treat them as malware. The blocked extensions are <code>ade adp app asp bas bat cer chm cmd com cpl crt csh der exe fxp gadget hlp hta inf ins isp its js jse ksh lib lnk mad maf mag mam maq mar mas mat mau mav maw mda mdb mde mdt mdw mdz msc msh msh1 msh2 mshxml msh1xml msh2xml msi msp mst ops pcd pif plg prf prg reg scf scr sct shb shs sys ps1 ps1xml ps2 ps2xml psc1 psc2 tmp url vb vbe vbs vps vsmacros vss vst vsw vxd ws wsc wsf wsh xnk</code>. The API rejects these straight away with <code>blocked_attachment_type</code>, so they never get queued. Some mailbox providers also block archives such as <code>.zip</code> that contain executables.</li>
         </ul>
         <div class="callout"><p>The response from <code>POST /v1/emails</code> doesn't echo attachments. <code>GET /v1/emails/:id</code> lists each file's <code>filename</code>, <code>content_type</code>, <code>content_id</code> and <code>size</code> in bytes, but never the content.</p></div>
       </section>
@@ -618,7 +619,7 @@ elif email["suppressed_recipients"]:
         <p>Retry network errors and <code>5xx</code> responses. Don't retry <code>4xx</code> responses, because the same request will fail the same way. Add this to the helper file, then use it for every send:</p>
 
         <div class="code" data-lang="node">
-          <div class="code-head"><span class="file">emailService.js</span><button type="button" class="copy small">Copy</button></div>
+          <div class="code-head"><span class="file">pigeon.js</span><button type="button" class="copy small">Copy</button></div>
           <pre><code>import { randomUUID } from 'node:crypto';
 
 export async function sendEmail(message, { attempts = 4 } = {}) {
@@ -636,7 +637,7 @@ export async function sendEmail(message, { attempts = 4 } = {}) {
         </div>
         <div class="code" data-lang="node">
           <div class="code-head"><span class="file">send.js</span><button type="button" class="copy small">Copy</button></div>
-          <pre><code>import { sendEmail } from './emailService.js';
+          <pre><code>import { sendEmail } from './pigeon.js';
 
 await sendEmail({
   from: 'no-reply@billing.example.com',
@@ -647,7 +648,7 @@ await sendEmail({
 });</code></pre>
         </div>
         <div class="code" data-lang="python">
-          <div class="code-head"><span class="file">email_service.py</span><button type="button" class="copy small">Copy</button></div>
+          <div class="code-head"><span class="file">pigeon.py</span><button type="button" class="copy small">Copy</button></div>
           <pre><code>import time
 import uuid
 
@@ -667,7 +668,7 @@ def send_email(message, attempts=4):
         </div>
         <div class="code" data-lang="python">
           <div class="code-head"><span class="file">send.py</span><button type="button" class="copy small">Copy</button></div>
-          <pre><code>from email_service import send_email
+          <pre><code>from pigeon import send_email
 
 send_email({
     "from": "no-reply@billing.example.com",
@@ -678,8 +679,8 @@ send_email({
 })</code></pre>
         </div>
         <div class="code" data-lang="go">
-          <div class="code-head"><span class="file">emailservice/retry.go</span><button type="button" class="copy small">Copy</button></div>
-          <pre><code>package emailservice
+          <div class="code-head"><span class="file">pigeon/retry.go</span><button type="button" class="copy small">Copy</button></div>
+          <pre><code>package pigeon
 
 import (
 	"context"
@@ -728,7 +729,7 @@ func (c *Client) SendWithRetry(ctx context.Context, msg SendRequest, attempts in
         <p>You can store a template once and then send it by name with different data each time. Templates use <a href="https://handlebarsjs.com/guide/" rel="noopener">Handlebars</a>. In the HTML body, <code>{{name}}</code> is HTML-escaped. Use <code>{{{name}}}</code> only for HTML you trust. Templates belong to your project, and <code>PUT</code> creates a template or replaces the existing one.</p>
         <div class="code" data-lang="node">
           <div class="code-head"><span class="file">templates.js</span><button type="button" class="copy small">Copy</button></div>
-          <pre><code>import { api, sendEmail } from './emailService.js';
+          <pre><code>import { api, sendEmail } from './pigeon.js';
 
 // Create or update (run once, e.g. from a deploy script)
 await api('PUT', '/v1/templates/invoice', {
@@ -754,7 +755,7 @@ await sendEmail({
         </div>
         <div class="code" data-lang="python">
           <div class="code-head"><span class="file">templates.py</span><button type="button" class="copy small">Copy</button></div>
-          <pre><code>from email_service import api, send_email
+          <pre><code>from pigeon import api, send_email
 
 # Create or update (run once, e.g. from a deploy script)
 api("PUT", "/v1/templates/invoice", {
@@ -803,7 +804,7 @@ if err != nil {
 fmt.Println(preview.Subject) // "Your invoice #42"
 
 // Send it
-_, err = client.SendWithRetry(ctx, emailservice.SendRequest{
+_, err = client.SendWithRetry(ctx, pigeon.SendRequest{
 	From:           "no-reply@billing.example.com",
 	To:             []string{"ada@customer.com"},
 	Template:       "invoice",
@@ -854,9 +855,9 @@ fmt.Println(email.Status, email.Attempts, email.LastError)
 // Delivery events: Delivery, Bounce, Complaint, …
 var events struct {
 	Data []struct {
-		EventType string          `json:"event_type"`
-		Payload   json.RawMessage `json:"payload"`
-		CreatedAt time.Time       `json:"created_at"`
+		EventType string         `json:"event_type"`
+		Details   map[string]any `json:"details"`
+		CreatedAt time.Time      `json:"created_at"`
 	} `json:"data"`
 }
 if err := client.Do(ctx, "GET", "/v1/emails/"+id+"/events", nil, &amp;events); err != nil {
@@ -865,6 +866,20 @@ if err := client.Do(ctx, "GET", "/v1/emails/"+id+"/events", nil, &amp;events); e
 for _, e := range events.Data {
 	fmt.Println(e.CreatedAt, e.EventType)
 }</code></pre>
+        </div>
+        <p>Each event has an <code>event_type</code>, a <code>created_at</code> time and a <code>details</code> object:</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th><code>event_type</code></th><th><code>details</code></th></tr></thead>
+            <tbody>
+              <tr><td><code>Send</code></td><td>Empty. The email was handed off for delivery.</td></tr>
+              <tr><td><code>Delivery</code></td><td><code>recipients</code>: the addresses whose mail server accepted it.</td></tr>
+              <tr><td><code>DeliveryDelay</code></td><td><code>delay_type</code> and <code>recipients</code>. Delivery is being retried.</td></tr>
+              <tr><td><code>Bounce</code></td><td><code>bounce_type</code> (<code>permanent</code>, <code>transient</code> or <code>undetermined</code>), <code>bounce_subtype</code>, and <code>recipients</code> as <code>{email, diagnostic}</code>. A permanent bounce suppresses the address.</td></tr>
+              <tr><td><code>Complaint</code></td><td><code>feedback_type</code> and <code>recipients</code>. The address is suppressed.</td></tr>
+              <tr><td><code>Reject</code></td><td><code>reason</code>. The email was refused before sending.</td></tr>
+            </tbody>
+          </table>
         </div>
         <p>The single-email response also includes the rendered <code>html</code>, <code>text</code>, <code>headers</code> and <code>template_data</code>, so you can see exactly what was sent, plus an <code>attachments</code> list with each file's name, type and size.</p>
       </section>
@@ -902,7 +917,7 @@ while True:
 params := url.Values{"status": {"bounced"}, "limit": {"100"}}
 for {
 	var page struct {
-		Data       []emailservice.Email `json:"data"`
+		Data       []pigeon.Email `json:"data"`
 		NextBefore *string              `json:"next_before"`
 	}
 	if err := client.Do(ctx, "GET", "/v1/emails?"+params.Encode(), nil, &amp;page); err != nil {
@@ -1009,7 +1024,7 @@ except EmailServiceError as err:
         <div class="code" data-lang="go">
           <div class="code-head"><span class="file">main.go</span><button type="button" class="copy small">Copy</button></div>
           <pre><code>_, err = client.SendWithRetry(ctx, msg, 4)
-var apiErr *emailservice.APIError
+var apiErr *pigeon.APIError
 if errors.As(err, &amp;apiErr) &amp;&amp; apiErr.Code == "invalid_recipient" {
 	log.Printf("bad addresses: %s", apiErr.Details)
 } else if err != nil {
@@ -1028,7 +1043,7 @@ if errors.As(err, &amp;apiErr) &amp;&amp; apiErr.Code == "invalid_recipient" {
               <tr><td>400</td><td><code>missing_subject</code>, <code>missing_body</code></td><td>No subject, or no <code>html</code> and no <code>text</code>, and no template.</td></tr>
               <tr><td>400</td><td><code>reserved_header</code>, <code>invalid_header</code></td><td>A header you can't set, or a malformed header name or value.</td></tr>
               <tr><td>400</td><td><code>invalid_attachment</code></td><td>An attachment has a bad filename, <code>content_type</code> or <code>content_id</code>, or its <code>content</code> isn't valid base64. <code>details.index</code> says which one.</td></tr>
-              <tr><td>400</td><td><code>blocked_attachment_type</code></td><td>Amazon SES doesn't send that file type, for example <code>.exe</code> or <code>.js</code>.</td></tr>
+              <tr><td>400</td><td><code>blocked_attachment_type</code></td><td>That file type can't be sent, for example <code>.exe</code> or <code>.js</code>. See <a href="#attachments">Attachments</a> for the full list.</td></tr>
               <tr><td>400</td><td><code>too_many_attachments</code>, <code>attachments_too_large</code></td><td>More than 10 files, or more than 10 MB in total before base64 encoding.</td></tr>
               <tr><td>400</td><td><code>empty_template</code>, <code>template_syntax</code></td><td>The template renders to nothing, or doesn't compile when you save it.</td></tr>
               <tr><td>401</td><td><code>unauthorized</code></td><td>The API key is missing, malformed or revoked.</td></tr>

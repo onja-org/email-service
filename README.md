@@ -112,7 +112,11 @@ A project may have several domains; it may send from any of them or their subdom
 
 Projects call `/v1/*` with `Authorization: Bearer es_live_...`.
 
-**The service's home page (`/`, also `/docs`) is the developer guide** for project teams: setup, sending, templates, retries with idempotency keys, delivery tracking, suppressions and error codes, with copy-paste clients for Node.js, Python and Go. It is public and static (no data, no auth), so you can send developers straight to the service URL. The source is `public/docs.html`.
+The service is branded **Pigeon** for developers.
+- **`/` is the marketing page** (`public/home.html`). It sends people to `internal.development@onja.org` for access, questions and support.
+- **`/docs` is the developer guide** (`public/docs.html`) for project teams. It covers setup, sending, attachments, templates, retries with idempotency keys, delivery tracking, suppressions and error codes, with copy-paste clients for Node.js, Python and Go.
+
+Both pages are public and static (no data, no auth), and neither names the underlying sending provider. Keep it that way: a test fails if either page mentions it.
 
 ```bash
 curl -s -X POST $BASE/v1/emails -H "Authorization: Bearer es_live_..." -H 'content-type: application/json' -d '{
@@ -155,7 +159,7 @@ Templates are Handlebars. `{{var}}` is HTML-escaped in the html body; use `{{{va
 
 ### Minimal Node.js call
 
-For full clients in Node.js, Python and Go, see the developer guide at `/`.
+For full clients in Node.js, Python and Go, see the developer guide at `/docs`.
 
 ```ts
 const res = await fetch(`${process.env.EMAIL_SERVICE_URL}/v1/emails`, {
