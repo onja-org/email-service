@@ -47,6 +47,10 @@ const configSetsInUse = new Set<string>();
 const deletedProjects: string[] = [];
 const sesCalls: string[] = [];
 let failIdentityDelete = false;
+let failIdentityCreate = false;
+const domainUpdates: unknown[][] = [];
+const keyWrites: string[] = [];
+const KEY_ID = '0000000a-0000-4000-8000-000000000001';
 
 /** Tiny SQL-pattern router standing in for pg. */
 const fakeDb = {
@@ -137,6 +141,25 @@ const fakeDb = {
       const row = inserted.find((m) => m.id === params[0] && (params[1] == null || m.project_id === params[1]));
       return { rows: row ? [row] : [], rowCount: row ? 1 : 0 };
     }
+    // ---- domains and keys admin
+    if (s === 'SELECT * FROM projects WHERE slug = $1') {
+      const row = params[0] === project.slug ? project : params[0] === 'marketing' ? { ...project, id: otherProjectId, slug: 'marketing', config_set: 'emailsvc-marketing' } : null;
+      return { rows: row ? [row] : [], rowCount: row ? 1 : 0 };
+    }
+    if (s.startsWith('UPDATE project_domains SET domain = COALESCE($3, domain), project_id = COALESCE($4, project_id)')) {
+      domainUpdates.push(params);
+      if (params[0] !== project.id || params[1] !== 'billing.example.com') return { rows: [], rowCount: 0 };
+      if (params[2] === 'taken.example.com') throw Object.assign(new Error('duplicate key'), { code: '23505' });
+      return { rows: [{ domain: params[2] ?? params[1], project_id: params[3] ?? params[0] }], rowCount: 1 };
+    }
+    if (s.startsWith('UPDATE api_keys SET name = $3 WHERE id = $1 AND project_id = $2')) {
+      if (params[0] !== KEY_ID || params[1] !== project.id) return { rows: [], rowCount: 0 };
+      return { rows: [{ id: KEY_ID, project_id: project.id, name: params[2], prefix: 'pk_abc', created_at: new Date(), last_used_at: null, revoked_at: null }], rowCount: 1 };
+    }
+    if (s === 'DELETE FROM api_keys WHERE id = $1 AND project_id = $2' || s.startsWith('UPDATE api_keys SET revoked_at = now()')) {
+      keyWrites.push(s.split(' ')[0]);
+      return { rows: [], rowCount: params[0] === KEY_ID && params[1] === project.id ? 1 : 0 };
+    }
     // ---- project admin (edit / delete). Canned: the shared `project` is never mutated.
     if (s.startsWith('SELECT 1 FROM projects WHERE config_set = $1')) {
       const used = configSetsInUse.has(params[0] as string);
@@ -186,6 +209,15 @@ const fakeSes = {
   },
   async deleteConfigurationSet(name: string) {
     sesCalls.push(`delete-config-set ${name}`);
+  },
+  async createDomainIdentity(domain: string) {
+    if (failIdentityCreate) throw new Error('SES is down');
+    sesCalls.push(`create-identity ${domain}`);
+    return { domain, verified: false, dkimStatus: 'PENDING', dnsRecords: [] };
+  },
+  async getDomainIdentity(domain: string) {
+    sesCalls.push(`get-identity ${domain}`);
+    return { domain, verified: true, dkimStatus: 'SUCCESS', dnsRecords: [] };
   },
   async deleteDomainIdentity(domain: string) {
     if (failIdentityDelete) throw new Error('SES is down');
@@ -721,5 +753,79 @@ describe('admin: edit and delete projects', () => {
     } finally {
       configSetsInUse.clear();
     }
+  });
+});
+
+describe('admin: edit and delete domains', () => {
+  const admin = { authorization: `Bearer ${cfg.ADMIN_TOKEN}` };
+  const url = '/admin/projects/billing/domains/billing.example.com';
+
+  it('renames a domain and registers the new name, keeping the old identity unless asked', async () => {
+    sesCalls.length = 0;
+    const res = await app.inject({ method: 'PATCH', url, headers: admin, payload: { domain: 'Mail.Billing.example.com' } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ domain: 'mail.billing.example.com', project: 'billing', identity: { verified: false }, warnings: [] });
+    expect(sesCalls).toEqual(['create-identity mail.billing.example.com']);
+
+    sesCalls.length = 0;
+    await app.inject({ method: 'PATCH', url: `${url}?delete_identity=true`, headers: admin, payload: { domain: 'mail.billing.example.com' } });
+    expect(sesCalls).toEqual(['delete-identity billing.example.com', 'create-identity mail.billing.example.com']);
+  });
+
+  it('moves a domain to another project without touching SES identities', async () => {
+    sesCalls.length = 0;
+    domainUpdates.length = 0;
+    const res = await app.inject({ method: 'PATCH', url: `${url}?delete_identity=true`, headers: admin, payload: { project: 'marketing' } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ domain: 'billing.example.com', project: 'marketing', identity: { verified: true } });
+    expect(domainUpdates[0]).toEqual([project.id, 'billing.example.com', null, otherProjectId]);
+    expect(sesCalls).toEqual(['get-identity billing.example.com']);
+  });
+
+  it('reports a saved rename with a warning when SES cannot register it', async () => {
+    failIdentityCreate = true;
+    try {
+      const res = await app.inject({ method: 'PATCH', url, headers: admin, payload: { domain: 'new.example.com' } });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().identity).toBeNull();
+      expect(res.json().warnings[0]).toContain('Attach the domain again to retry');
+    } finally {
+      failIdentityCreate = false;
+    }
+  });
+
+  it('rejects empty, taken, unknown and cross-project edits', async () => {
+    expect((await app.inject({ method: 'PATCH', url, headers: admin, payload: {} })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'PATCH', url, headers: admin, payload: { domain: 'not a domain' } })).statusCode).toBe(400);
+    const taken = await app.inject({ method: 'PATCH', url, headers: admin, payload: { domain: 'taken.example.com' } });
+    expect(taken.statusCode).toBe(409);
+    expect(taken.json().error.code).toBe('domain_taken');
+    expect((await app.inject({ method: 'PATCH', url, headers: admin, payload: { project: 'nope' } })).statusCode).toBe(404);
+    const other = await app.inject({ method: 'PATCH', url: '/admin/projects/billing/domains/other.example.com', headers: admin, payload: { domain: 'x.example.com' } });
+    expect(other.statusCode).toBe(404);
+    expect((await app.inject({ method: 'PATCH', url, payload: { domain: 'x.example.com' } })).statusCode).toBe(401);
+  });
+});
+
+describe('admin: rename and delete API keys', () => {
+  const admin = { authorization: `Bearer ${cfg.ADMIN_TOKEN}` };
+
+  it('renames a key', async () => {
+    const res = await app.inject({ method: 'PATCH', url: `/admin/projects/billing/keys/${KEY_ID}`, headers: admin, payload: { name: ' staging ' } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ id: KEY_ID, name: 'staging' });
+    expect(res.json()).not.toHaveProperty('key_hash');
+    expect((await app.inject({ method: 'PATCH', url: `/admin/projects/billing/keys/${KEY_ID}`, headers: admin, payload: { name: '' } })).statusCode).toBe(400);
+    const missing = await app.inject({ method: 'PATCH', url: '/admin/projects/billing/keys/0000000a-0000-4000-8000-000000000009', headers: admin, payload: { name: 'x' } });
+    expect(missing.statusCode).toBe(404);
+  });
+
+  it('revokes by default and deletes only with permanent=true', async () => {
+    keyWrites.length = 0;
+    expect((await app.inject({ method: 'DELETE', url: `/admin/projects/billing/keys/${KEY_ID}`, headers: admin })).statusCode).toBe(204);
+    expect((await app.inject({ method: 'DELETE', url: `/admin/projects/billing/keys/${KEY_ID}?permanent=true`, headers: admin })).statusCode).toBe(204);
+    expect(keyWrites).toEqual(['UPDATE', 'DELETE']);
+    const missing = await app.inject({ method: 'DELETE', url: '/admin/projects/billing/keys/0000000a-0000-4000-8000-000000000009?permanent=true', headers: admin });
+    expect(missing.statusCode).toBe(404);
   });
 });

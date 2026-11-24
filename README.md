@@ -56,7 +56,7 @@ Sending to an unverified address in the sandbox fails with `MessageRejected: Ema
 
 ## 3. Admin UI
 
-**`/admin/ui`** does everything the admin API does, from a browser: create, rename and delete projects, attach domains and see the DNS records and verification status, issue and revoke API keys, browse each project's emails with their SES events, and manage the shared suppression list.
+**`/admin/ui`** does everything the admin API does, from a browser: create, rename and delete projects, attach, fix, move and delete domains and see the DNS records and verification status, issue, rename, revoke and delete API keys, browse each project's emails with their SES events, and manage the shared suppression list.
 
 **Email log (`/admin/ui#/emails`)** lists every email from every project, newest first. Filters:
 - **Time:** Today, Yesterday, Last 7/30/90 days, or a custom date range, in the viewer's local time.
@@ -190,8 +190,10 @@ const { id } = await res.json();
 | `GET` | `/admin/projects/:slug` | Project with domains and keys |
 | `PATCH` | `/admin/projects/:slug` | Rename and/or change the slug: `{"name": "...", "slug": "..."}`. API keys keep working; the SES configuration set keeps its name |
 | `DELETE` | `/admin/projects/:slug?confirm=:slug` | Delete the project with its domains, keys, templates and emails. `confirm` must repeat the slug. Also deletes its SES configuration set; add `delete_identities=true` to delete its domains' SES identities. Returns what was removed and any SES `warnings` |
-| `POST/GET/DELETE` | `/admin/projects/:slug/domains[/:domain]` | Attach domain, poll DNS/verification, detach |
-| `POST/DELETE` | `/admin/projects/:slug/keys[/:keyId]` | Issue / revoke API keys |
+| `POST/GET/DELETE` | `/admin/projects/:slug/domains[/:domain]` | Attach domain, poll DNS/verification, delete (`?delete_identity=true` also removes the SES identity) |
+| `PATCH` | `/admin/projects/:slug/domains/:domain` | Fix the name `{"domain": "..."}` (registers the new name with SES and returns its DNS records; `?delete_identity=true` removes the old identity) and/or move it `{"project": "other-slug"}` (keeps its verified identity) |
+| `POST/DELETE` | `/admin/projects/:slug/keys[/:keyId]` | Issue / revoke API keys; `DELETE …?permanent=true` deletes the key outright |
+| `PATCH` | `/admin/projects/:slug/keys/:keyId` | Rename a key: `{"name": "..."}` |
 | `GET/POST` | `/admin/suppressions` | Global suppression list; add an admin manual entry |
 | `GET/DELETE` | `/admin/suppressions/:email` | Look up an entry; admins can remove any entry |
 | `GET` | `/admin/projects/:slug/emails`, `/admin/emails/:id`, `/admin/projects/:slug/templates` | Read-only views of a project's messages (with events) and templates |

@@ -11,13 +11,16 @@ import {
   configSetInUse,
   createApiKey,
   createProject,
+  deleteApiKey,
   deleteProject,
   getProjectBySlug,
   listApiKeys,
   listDomains,
   listProjects,
   removeDomain,
+  renameApiKey,
   revokeApiKey,
+  updateDomain,
   updateProject,
 } from '../services/projects.js';
 import { addSuppression, getSuppression, listSuppressions, removeSuppression } from '../services/suppression.js';
@@ -243,6 +246,61 @@ export const adminRoutes: FastifyPluginAsync = async (instance) => {
     },
   );
 
+  /**
+   * Fix a domain's name and/or move it to another project. Moving keeps the SES
+   * identity (still verified, no DNS work). Renaming registers the new name with SES
+   * and responds with its DNS records; the old identity is deleted only when
+   * delete_identity=true.
+   */
+  app.patch(
+    '/projects/:slug/domains/:domain',
+    {
+      schema: {
+        params: slugParam.extend({ domain: domainSchema }),
+        querystring: z.object({ delete_identity: z.enum(['true', 'false']).default('false') }),
+        body: z
+          .object({ domain: domainSchema.optional(), project: slugParam.shape.slug.optional() })
+          .refine((b) => b.domain !== undefined || b.project !== undefined, 'Provide a new domain or a project to move it to'),
+      },
+    },
+    async (req) => {
+      const project = await getProjectBySlug(app.db, req.params.slug);
+      const target = req.body.project && req.body.project !== project.slug ? await getProjectBySlug(app.db, req.body.project) : project;
+      const oldDomain = req.params.domain.toLowerCase();
+      const newDomain = req.body.domain?.toLowerCase();
+      const renamed = newDomain !== undefined && newDomain !== oldDomain;
+
+      const row = await updateDomain(app.db, project.id, oldDomain, {
+        domain: renamed ? newDomain : undefined,
+        projectId: target.id !== project.id ? target.id : undefined,
+      });
+      if (!row) throw notFound(`Domain "${oldDomain}" on project "${project.slug}"`);
+      req.log.info({ domain: oldDomain, newDomain: row.domain, from: project.slug, to: target.slug }, 'domain updated');
+
+      const warnings: string[] = [];
+      if (renamed && req.query.delete_identity === 'true') {
+        try {
+          await app.ses.deleteDomainIdentity(oldDomain);
+        } catch (err) {
+          req.log.warn({ err, domain: oldDomain }, 'could not delete SES domain identity');
+          warnings.push(`Identity for "${oldDomain}" could not be deleted: ${(err as Error).message}`);
+        }
+      }
+      // The change is saved; an SES hiccup here must not report it as failed.
+      let identity = null;
+      try {
+        identity = renamed ? await app.ses.createDomainIdentity(row.domain) : await app.ses.getDomainIdentity(row.domain);
+      } catch (err) {
+        req.log.warn({ err, domain: row.domain }, 'could not register/read SES domain identity');
+        warnings.push(
+          `Saved, but SES could not ${renamed ? 'register' : 'read'} "${row.domain}": ${(err as Error).message}.` +
+            (renamed ? ' Attach the domain again to retry.' : ''),
+        );
+      }
+      return { domain: row.domain, project: target.slug, identity, warnings };
+    },
+  );
+
   // ---- API keys -------------------------------------------------------------
 
   app.post(
@@ -256,12 +314,40 @@ export const adminRoutes: FastifyPluginAsync = async (instance) => {
     },
   );
 
+  app.patch(
+    '/projects/:slug/keys/:keyId',
+    {
+      schema: {
+        params: slugParam.extend({ keyId: z.string().uuid() }),
+        body: z.object({ name: z.string().trim().min(1).max(100) }),
+      },
+    },
+    async (req) => {
+      const project = await getProjectBySlug(app.db, req.params.slug);
+      const key = await renameApiKey(app.db, project.id, req.params.keyId, req.body.name);
+      if (!key) throw notFound('API key');
+      return key;
+    },
+  );
+
+  /**
+   * Revokes a key (it stays listed, marked revoked). With permanent=true the key is
+   * deleted outright instead, whether active or already revoked.
+   */
   app.delete(
     '/projects/:slug/keys/:keyId',
-    { schema: { params: slugParam.extend({ keyId: z.string().uuid() }) } },
+    {
+      schema: {
+        params: slugParam.extend({ keyId: z.string().uuid() }),
+        querystring: z.object({ permanent: z.enum(['true', 'false']).default('false') }),
+      },
+    },
     async (req, reply) => {
       const project = await getProjectBySlug(app.db, req.params.slug);
-      const ok = await revokeApiKey(app.db, project.id, req.params.keyId);
+      const ok =
+        req.query.permanent === 'true'
+          ? await deleteApiKey(app.db, project.id, req.params.keyId)
+          : await revokeApiKey(app.db, project.id, req.params.keyId);
       if (!ok) throw notFound('API key');
       return reply.status(204).send();
     },

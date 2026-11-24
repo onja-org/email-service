@@ -176,6 +176,31 @@ export async function removeDomain(db: Queryable, projectId: string, domain: str
   return (rowCount ?? 0) > 0;
 }
 
+/**
+ * Changes a domain's name (e.g. to fix a typo) and/or moves it to another project.
+ * Returns null if the domain is not on `projectId`. A moved domain keeps its SES
+ * identity, so it stays verified; a renamed one needs a new identity.
+ */
+export async function updateDomain(
+  db: Queryable,
+  projectId: string,
+  domain: string,
+  changes: { domain?: string; projectId?: string },
+): Promise<{ domain: string; project_id: string } | null> {
+  const next = changes.domain?.toLowerCase();
+  try {
+    const { rows } = await db.query<{ domain: string; project_id: string }>(
+      `UPDATE project_domains SET domain = COALESCE($3, domain), project_id = COALESCE($4, project_id)
+       WHERE project_id = $1 AND domain = $2 RETURNING domain, project_id`,
+      [projectId, domain.toLowerCase(), next ?? null, changes.projectId ?? null],
+    );
+    return rows[0] ?? null;
+  } catch (err) {
+    if (isUniqueViolation(err)) throw conflict('domain_taken', `Domain "${next}" is already attached to a project`);
+    throw err;
+  }
+}
+
 export async function createApiKey(
   db: Queryable,
   projectId: string,
@@ -204,6 +229,21 @@ export async function revokeApiKey(db: Queryable, projectId: string, keyId: stri
     'UPDATE api_keys SET revoked_at = now() WHERE id = $1 AND project_id = $2 AND revoked_at IS NULL',
     [keyId, projectId],
   );
+  return (rowCount ?? 0) > 0;
+}
+
+export async function renameApiKey(db: Queryable, projectId: string, keyId: string, name: string): Promise<ApiKeyRow | null> {
+  const { rows } = await db.query<ApiKeyRow>(
+    `UPDATE api_keys SET name = $3 WHERE id = $1 AND project_id = $2
+     RETURNING id, project_id, name, prefix, created_at, last_used_at, revoked_at`,
+    [keyId, projectId, name],
+  );
+  return rows[0] ?? null;
+}
+
+/** Removes a key for good (active or revoked). An active key stops working at once. */
+export async function deleteApiKey(db: Queryable, projectId: string, keyId: string): Promise<boolean> {
+  const { rowCount } = await db.query('DELETE FROM api_keys WHERE id = $1 AND project_id = $2', [keyId, projectId]);
   return (rowCount ?? 0) > 0;
 }
 

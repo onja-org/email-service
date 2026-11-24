@@ -87,12 +87,12 @@
     try { await fn(); if (okMsg) banner(okMsg, true); } catch (err) { banner(describe(err)); } finally { btn.disabled = false; }
   }
   /** Two-step inline confirmation (no window.confirm). Returns a button that turns into "Confirm / Cancel". */
-  function confirmButton(label, onConfirm, cls = 'danger') {
+  function confirmButton(label, onConfirm, cls = 'danger', confirmLabel = 'Confirm') {
     const wrap = el('span', { class: 'actions' });
     const main = el('button', { class: `small ${cls}`, text: label, onclick: () => {
       clear(wrap);
       wrap.append(
-        el('button', { class: `small ${cls}`, text: 'Confirm', onclick: (e) => act(e.target, onConfirm) }),
+        el('button', { class: `small ${cls}`, text: confirmLabel, onclick: (e) => act(e.target, onConfirm) }),
         el('button', { class: 'small', text: 'Cancel', onclick: () => { clear(wrap); wrap.append(main); } }),
       );
     } });
@@ -151,6 +151,41 @@
     const reload = () => projectView(slug);
 
     // -- domains
+    const domainBase = `/admin/projects/${encodeURIComponent(slug)}/domains`;
+    /** Swaps a domain's action bar for an inline form: fix the name and/or move it to another project. */
+    async function editDomain(domain, slot) {
+      const { data: projects } = await get('/admin/projects');
+      const nameI = el('input', { type: 'text', value: domain, required: true, pattern: '[A-Za-z0-9.-]+\\.[A-Za-z0-9-]+', 'aria-label': 'Domain', spellcheck: 'false' });
+      const projSel = el('select', { 'aria-label': 'Project' }, projects.map((x) => el('option', { value: x.slug, text: x.name ? `${x.name} (${x.slug})` : x.slug, selected: x.slug === p.slug })));
+      const dropOld = el('input', { type: 'checkbox' });
+      const dropWrap = el('label', { class: 'check', hidden: true }, [dropOld, ` Also delete the SES identity for ${domain}`]);
+      const renameNote = el('p', { class: 'sub', hidden: true, text: 'A new name must be verified again: you will get fresh DNS records to add.' });
+      nameI.addEventListener('input', () => { const same = nameI.value.trim().toLowerCase() === domain; dropWrap.hidden = same; renameNote.hidden = same; });
+      const form = el('form', { class: 'row', onsubmit: (e) => {
+        e.preventDefault();
+        const body = {}, nd = nameI.value.trim().toLowerCase();
+        if (nd !== domain) body.domain = nd;
+        if (projSel.value !== p.slug) body.project = projSel.value;
+        if (!Object.keys(body).length) { banner('Nothing to save: the domain and project are unchanged.'); return; }
+        act($('button[type=submit]', form), async () => {
+          const q = body.domain && dropOld.checked ? '?delete_identity=true' : '';
+          const r = await api('PATCH', `${domainBase}/${encodeURIComponent(domain)}${q}`, body);
+          const did = [body.domain ? `renamed to ${r.domain}` : null, body.project ? `moved to ${r.project}` : null].filter(Boolean).join(' and ');
+          const next = body.domain && !body.project ? ' Add its DNS records below, then re-check.' : '';
+          flash = r.warnings.length ? { msg: `${domain} ${did}. ${r.warnings.join(' ')}`, ok: false } : { msg: `${domain} ${did}.${next}`, ok: true };
+          await route();
+        });
+      } }, [
+        el('label', { class: 'field' }, ['Domain', nameI]),
+        el('label', { class: 'field' }, ['Project', projSel]),
+        el('label', { class: 'field' }, [' ', el('span', { class: 'actions' }, [
+          el('button', { class: 'primary', type: 'submit', text: 'Save' }),
+          el('button', { type: 'button', text: 'Cancel', onclick: reload }),
+        ])]),
+      ]);
+      clear(slot).append(el('div', { style: 'flex:1 1 100%' }, [form, renameNote, dropWrap]));
+      nameI.focus();
+    }
     const domainRows = await Promise.all(p.domains.map(async (d) => {
       let identity = null, err = null;
       try { identity = await get(`/admin/projects/${encodeURIComponent(slug)}/domains/${encodeURIComponent(d)}`); } catch (e) { err = e; }
@@ -178,15 +213,14 @@
           ])
         : null;
       const mailFrom = identity?.mailFromStatus ? el('div', { class: 'sub' }, [`Custom MAIL FROM: ${identity.mailFromStatus}`]) : null;
-      return el('div', { class: 'notice' }, [
-        el('div', { class: 'actions' }, [
-          el('strong', { text: domain }), status,
-          el('button', { class: 'small', text: 'Re-check', onclick: reload }),
-          confirmButton('Detach', async () => { await api('DELETE', `/admin/projects/${encodeURIComponent(slug)}/domains/${encodeURIComponent(domain)}`); reload(); }),
-          confirmButton('Detach + delete SES identity', async () => { await api('DELETE', `/admin/projects/${encodeURIComponent(slug)}/domains/${encodeURIComponent(domain)}?delete_identity=true`); reload(); }),
-        ]),
-        mailFrom, dns,
+      const actions = el('div', { class: 'actions' }, [
+        el('strong', { text: domain }), status,
+        el('button', { class: 'small', text: 'Re-check', onclick: reload }),
+        el('button', { class: 'small', text: 'Edit', onclick: (e) => act(e.target, () => editDomain(domain, actions)) }),
+        confirmButton('Delete', async () => { await api('DELETE', `${domainBase}/${encodeURIComponent(domain)}`); reload(); }, 'danger', 'Confirm: stop sending from it'),
+        confirmButton('Delete + SES identity', async () => { await api('DELETE', `${domainBase}/${encodeURIComponent(domain)}?delete_identity=true`); reload(); }, 'danger', 'Confirm: DNS must be re-verified to re-add'),
       ]);
+      return el('div', { class: 'notice' }, [actions, mailFrom, dns]);
     }) : [el('div', { class: 'empty', text: 'No domains. The project cannot send until one is attached and verified.' })];
     const domainForm = el('form', { class: 'row', onsubmit: (e) => {
       e.preventDefault();
@@ -198,38 +232,53 @@
     ]);
 
     // -- keys
-    const keyRows = p.api_keys.map((k) => el('tr', {}, [
-      el('td', { text: k.name }), el('td', {}, el('code', { text: `${k.prefix}…` })),
-      el('td', { text: fmt(k.created_at) }), el('td', { text: ago(k.last_used_at) }),
-      el('td', {}, k.revoked_at ? chip(`revoked ${fmt(k.revoked_at)}`, 'bad') : chip('active', 'good')),
-      el('td', {}, k.revoked_at ? null : confirmButton('Revoke', async () => { await api('DELETE', `/admin/projects/${encodeURIComponent(slug)}/keys/${k.id}`); reload(); })),
-    ]));
+    const keyBase = `/admin/projects/${encodeURIComponent(slug)}/keys`;
+    let keyTable = el('div');
+    const renderKeys = () => {
+      const tbl = table(['Name', 'Prefix', 'Created', 'Last used', 'Status', ''], p.api_keys.map(keyRow), 'No API keys yet.');
+      keyTable.replaceWith(tbl); keyTable = tbl;
+    };
+    const refreshKeys = async () => { p.api_keys = (await get(`/admin/projects/${encodeURIComponent(slug)}`)).api_keys; renderKeys(); };
+    function keyRow(k) {
+      const nameCell = el('td', { text: k.name });
+      const rename = () => {
+        const input = el('input', { type: 'text', value: k.name, required: true, maxlength: 100, 'aria-label': 'Key name' });
+        const form = el('form', { class: 'row', onsubmit: (e) => {
+          e.preventDefault();
+          act($('button', form), async () => { await api('PATCH', `${keyBase}/${k.id}`, { name: input.value.trim() }); await refreshKeys(); }, 'Key renamed.');
+        } }, [input, el('button', { class: 'small primary', type: 'submit', text: 'Save' }), el('button', { class: 'small', type: 'button', text: 'Cancel', onclick: renderKeys })]);
+        clear(nameCell).append(form); input.focus();
+      };
+      return el('tr', {}, [
+        nameCell, el('td', {}, el('code', { text: `${k.prefix}…` })),
+        el('td', { text: fmt(k.created_at) }), el('td', { text: ago(k.last_used_at) }),
+        el('td', {}, k.revoked_at ? chip(`revoked ${fmt(k.revoked_at)}`, 'bad') : chip('active', 'good')),
+        el('td', {}, el('span', { class: 'actions' }, [
+          el('button', { class: 'small', text: 'Rename', onclick: rename }),
+          k.revoked_at ? null : confirmButton('Revoke', async () => { await api('DELETE', `${keyBase}/${k.id}`); await refreshKeys(); }, 'danger', 'Confirm revoke'),
+          confirmButton('Delete', async () => { await api('DELETE', `${keyBase}/${k.id}?permanent=true`); await refreshKeys(); }, 'danger',
+            k.revoked_at ? 'Confirm delete' : 'Confirm: apps using it stop'),
+        ])),
+      ]);
+    }
+    renderKeys();
     const newKey = el('div');
     const keyForm = el('form', { class: 'row', onsubmit: (e) => {
       e.preventDefault();
       const name = $('input', keyForm).value.trim();
       act($('button', keyForm), async () => {
-        const k = await api('POST', `/admin/projects/${encodeURIComponent(slug)}/keys`, { name });
+        const k = await api('POST', keyBase, { name });
         clear(newKey).append(el('div', { class: 'notice' }, [
           el('div', {}, [el('strong', { text: `Key "${k.name}" created. ` }), 'Copy it now: it is shown once and never stored in plaintext.']),
           el('div', { class: 'secret' }, [el('code', { text: k.key }), copyButton(k.key)]),
         ]));
         keyForm.reset();
-        // Refresh the table without discarding the one-time key box.
-        const fresh = await get(`/admin/projects/${encodeURIComponent(slug)}`);
-        p.api_keys = fresh.api_keys;
-        const tbl = table(['Name', 'Prefix', 'Created', 'Last used', 'Status', ''], fresh.api_keys.map((kk) => el('tr', {}, [
-          el('td', { text: kk.name }), el('td', {}, el('code', { text: `${kk.prefix}…` })), el('td', { text: fmt(kk.created_at) }), el('td', { text: ago(kk.last_used_at) }),
-          el('td', {}, kk.revoked_at ? chip('revoked', 'bad') : chip('active', 'good')),
-          el('td', {}, kk.revoked_at ? null : confirmButton('Revoke', async () => { await api('DELETE', `/admin/projects/${encodeURIComponent(slug)}/keys/${kk.id}`); reload(); })),
-        ])), '');
-        keyTable.replaceWith(tbl); keyTable = tbl;
+        await refreshKeys(); // keeps the one-time key box
       });
     } }, [
       el('input', { type: 'text', placeholder: 'production', required: true, maxlength: 100 }),
       el('button', { class: 'primary', type: 'submit', text: 'Issue key' }),
     ]);
-    let keyTable = table(['Name', 'Prefix', 'Created', 'Last used', 'Status', ''], keyRows, 'No API keys yet.');
 
     // -- templates (read-only; projects manage them with their key)
     const { data: templates } = await get(`/admin/projects/${encodeURIComponent(slug)}/templates`);
