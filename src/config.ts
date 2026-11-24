@@ -43,7 +43,7 @@ const schema = z.object({
     .string()
     .url()
     .transform((u) => u.replace(/\/+$/, ''))
-    .default('https://email-sending-service.onja.dev'),
+    .default('https://pigeon.onja.dev'),
 
   // Bearer token for /admin routes (project + key + domain management).
   ADMIN_TOKEN: z.string().min(16),

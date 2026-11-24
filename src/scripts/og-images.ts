@@ -15,7 +15,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const pub = (...p: string[]) => path.join(root, 'public', ...p);
 const font = (f: string) => pathToFileURL(pub('fonts', f)).href;
-const host = new URL(process.env.PUBLIC_URL ?? 'https://email-sending-service.onja.dev').host;
+const host = new URL(process.env.PUBLIC_URL ?? 'https://pigeon.onja.dev').host;
 
 const chrome =
   process.env.CHROME ??
