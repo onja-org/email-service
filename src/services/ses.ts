@@ -1,6 +1,7 @@
 import {
   CreateConfigurationSetCommand,
   CreateConfigurationSetEventDestinationCommand,
+  DeleteConfigurationSetCommand,
   CreateEmailIdentityCommand,
   DeleteEmailIdentityCommand,
   GetEmailIdentityCommand,
@@ -94,6 +95,7 @@ export interface DomainIdentity {
 export interface SesService {
   send(email: OutgoingEmail): Promise<SendResult>;
   ensureConfigurationSet(name: string): Promise<void>;
+  deleteConfigurationSet(name: string): Promise<void>;
   createDomainIdentity(domain: string): Promise<DomainIdentity>;
   getDomainIdentity(domain: string): Promise<DomainIdentity>;
   deleteDomainIdentity(domain: string): Promise<void>;
@@ -174,6 +176,14 @@ export function createSesService(cfg: Config, log: { info: (o: unknown, m?: stri
     }
   }
 
+  /** Idempotent: a configuration set that is already gone counts as deleted. */
+  async function deleteConfigurationSet(name: string): Promise<void> {
+    if (cfg.SES_DRY_RUN) return;
+    await client.send(new DeleteConfigurationSetCommand({ ConfigurationSetName: name })).catch((err) => {
+      if (!(err instanceof SESv2ServiceException && err.name === 'NotFoundException')) throw err;
+    });
+  }
+
   async function createDomainIdentity(domain: string): Promise<DomainIdentity> {
     if (cfg.SES_DRY_RUN) return dryRunIdentity(domain);
     try {
@@ -245,7 +255,7 @@ export function createSesService(cfg: Config, log: { info: (o: unknown, m?: stri
     return { domain, verified: true, dkimStatus: 'DRY_RUN', dnsRecords: [] };
   }
 
-  return { send, ensureConfigurationSet, createDomainIdentity, getDomainIdentity, deleteDomainIdentity };
+  return { send, ensureConfigurationSet, deleteConfigurationSet, createDomainIdentity, getDomainIdentity, deleteDomainIdentity };
 }
 
 function isAlreadyExists(err: unknown): boolean {

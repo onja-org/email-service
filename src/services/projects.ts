@@ -66,10 +66,72 @@ export async function reconcileConfigurationSets(
   if (rows.length) log.info({ projects: rows.length }, 'SES configuration sets reconciled');
 }
 
+/** True if any project (other than `exceptProjectId`) uses this SES configuration set. */
+export async function configSetInUse(db: Queryable, configSet: string, exceptProjectId?: string): Promise<boolean> {
+  const { rows } = await db.query('SELECT 1 FROM projects WHERE config_set = $1 AND id IS DISTINCT FROM $2 LIMIT 1', [
+    configSet,
+    exceptProjectId ?? null,
+  ]);
+  return rows.length > 0;
+}
+
 export async function getProjectBySlug(db: Queryable, slug: string): Promise<Project> {
   const { rows } = await db.query<Project>('SELECT * FROM projects WHERE slug = $1', [slug]);
   if (!rows[0]) throw notFound(`Project "${slug}"`);
   return rows[0];
+}
+
+/**
+ * Renames a project and/or changes its slug. The SES configuration set keeps its
+ * original name (it is stored on the row), so a slug change needs no SES work and
+ * past metrics stay attached. API keys are unaffected.
+ */
+export async function updateProject(
+  db: Queryable,
+  slug: string,
+  changes: { name?: string; slug?: string },
+): Promise<Project> {
+  try {
+    const { rows } = await db.query<Project>(
+      `UPDATE projects SET name = COALESCE($2, name), slug = COALESCE($3, slug)
+       WHERE slug = $1 RETURNING *`,
+      [slug, changes.name ?? null, changes.slug ?? null],
+    );
+    if (!rows[0]) throw notFound(`Project "${slug}"`);
+    return rows[0];
+  } catch (err) {
+    if (isUniqueViolation(err)) throw conflict('project_exists', `Project "${changes.slug}" already exists`);
+    throw err;
+  }
+}
+
+export interface DeletedProject {
+  project: Project;
+  domains: string[];
+  counts: { emails: number; templates: number; api_keys: number };
+}
+
+/**
+ * Deletes a project and everything it owns: domains, API keys (so its senders stop
+ * working at once), templates, and its emails with their events and attachments.
+ * Suppressions it caused stay on the shared list, unattributed. Returns what was
+ * removed so the caller can clean up provider-side resources.
+ */
+export async function deleteProject(db: Queryable, slug: string): Promise<DeletedProject> {
+  const { rows } = await db.query<Project & { domains: string[]; emails: string; templates: string; api_keys: string }>(
+    `SELECT p.*,
+            COALESCE((SELECT array_agg(domain ORDER BY domain) FROM project_domains WHERE project_id = p.id), '{}') AS domains,
+            (SELECT count(*) FROM messages WHERE project_id = p.id) AS emails,
+            (SELECT count(*) FROM templates WHERE project_id = p.id) AS templates,
+            (SELECT count(*) FROM api_keys WHERE project_id = p.id) AS api_keys
+     FROM projects p WHERE p.slug = $1 FOR UPDATE`,
+    [slug],
+  );
+  const row = rows[0];
+  if (!row) throw notFound(`Project "${slug}"`);
+  await db.query('DELETE FROM projects WHERE id = $1', [row.id]);
+  const { domains, emails, templates, api_keys, ...project } = row;
+  return { project, domains, counts: { emails: Number(emails), templates: Number(templates), api_keys: Number(api_keys) } };
 }
 
 export async function listProjects(db: Queryable): Promise<(Project & { domains: string[] })[]> {

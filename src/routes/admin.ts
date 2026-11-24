@@ -1,19 +1,24 @@
+import { randomBytes } from 'node:crypto';
 import type { FastifyPluginAsync } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { requireAdmin } from '../lib/auth.js';
+import { withTransaction } from '../lib/db.js';
 import { configSetName } from '../config.js';
 import { badRequest, notFound } from '../lib/errors.js';
 import {
   addDomain,
+  configSetInUse,
   createApiKey,
   createProject,
+  deleteProject,
   getProjectBySlug,
   listApiKeys,
   listDomains,
   listProjects,
   removeDomain,
   revokeApiKey,
+  updateProject,
 } from '../services/projects.js';
 import { addSuppression, getSuppression, listSuppressions, removeSuppression } from '../services/suppression.js';
 import {
@@ -102,7 +107,10 @@ export const adminRoutes: FastifyPluginAsync = async (instance) => {
     '/projects',
     { schema: { body: z.object({ slug: slugParam.shape.slug, name: z.string().min(1).max(200) }) } },
     async (req, reply) => {
-      const configSet = configSetName(app.cfg, req.body.slug);
+      let configSet = configSetName(app.cfg, req.body.slug);
+      // A renamed project keeps its original configuration set, so this slug's
+      // default name may already belong to someone else. Never share one.
+      if (await configSetInUse(app.db, configSet)) configSet = `${configSet}-${randomBytes(3).toString('hex')}`;
       // Create the SES configuration set first so per-project metrics exist from
       // the first send. Idempotent on the SES side.
       await app.ses.ensureConfigurationSet(configSet);
@@ -116,6 +124,76 @@ export const adminRoutes: FastifyPluginAsync = async (instance) => {
     const [domains, keys] = await Promise.all([listDomains(app.db, project.id), listApiKeys(app.db, project.id)]);
     return { ...project, domains, api_keys: keys };
   });
+
+  /** Rename a project and/or change its slug. API keys keep working; URLs using the old slug stop. */
+  app.patch(
+    '/projects/:slug',
+    {
+      schema: {
+        params: slugParam,
+        body: z
+          .object({ name: z.string().trim().min(1).max(200).optional(), slug: slugParam.shape.slug.optional() })
+          .refine((b) => b.name !== undefined || b.slug !== undefined, 'Provide a name or a slug to change'),
+      },
+    },
+    async (req) => updateProject(app.db, req.params.slug, req.body),
+  );
+
+  /**
+   * Delete a project and everything it owns (domains, API keys, templates, emails).
+   * Irreversible, so the caller must repeat the slug in `confirm`. The project's SES
+   * configuration set is removed too; its domain identities only on request, since
+   * the same domain may be re-attached to another project.
+   */
+  app.delete(
+    '/projects/:slug',
+    {
+      schema: {
+        params: slugParam,
+        querystring: z.object({
+          confirm: z.string().optional(),
+          delete_identities: z.enum(['true', 'false']).default('false'),
+        }),
+      },
+    },
+    async (req) => {
+      const { slug } = req.params;
+      if (req.query.confirm !== slug) {
+        throw badRequest('confirmation_required', `Deleting a project is permanent. Repeat its slug: ?confirm=${slug}`);
+      }
+      const removed = await withTransaction(app.db, (tx) => deleteProject(tx, slug));
+      req.log.warn({ project: slug, counts: removed.counts, domains: removed.domains }, 'project deleted');
+
+      // Provider clean-up is best effort: the project is already gone, so report
+      // what could not be removed instead of failing the request.
+      const warnings: string[] = [];
+      const { config_set: configSet } = removed.project;
+      try {
+        if (!(await configSetInUse(app.db, configSet))) await app.ses.deleteConfigurationSet(configSet);
+      } catch (err) {
+        req.log.warn({ err, configSet }, 'could not delete SES configuration set');
+        warnings.push(`Configuration set "${configSet}" could not be deleted: ${(err as Error).message}`);
+      }
+      if (req.query.delete_identities === 'true') {
+        for (const domain of removed.domains) {
+          try {
+            await app.ses.deleteDomainIdentity(domain);
+          } catch (err) {
+            req.log.warn({ err, domain }, 'could not delete SES domain identity');
+            warnings.push(`Identity for "${domain}" could not be deleted: ${(err as Error).message}`);
+          }
+        }
+      }
+      return {
+        deleted: removed.project.slug,
+        domains: removed.domains,
+        emails: removed.counts.emails,
+        templates: removed.counts.templates,
+        api_keys: removed.counts.api_keys,
+        warnings,
+      };
+    },
+  );
 
   // ---- Domains --------------------------------------------------------------
 

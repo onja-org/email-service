@@ -43,6 +43,10 @@ const suppressions = new Map<string, { email: string; reason: string; project_id
 const inserted: Record<string, unknown>[] = [];
 const attachmentRows: { message_id: string; position: number; filename: string; content_type: string; content_id: string | null; size_bytes: number; content: Buffer }[] = [];
 const enqueued: SendJob[] = [];
+const configSetsInUse = new Set<string>();
+const deletedProjects: string[] = [];
+const sesCalls: string[] = [];
+let failIdentityDelete = false;
 
 /** Tiny SQL-pattern router standing in for pg. */
 const fakeDb = {
@@ -133,6 +137,30 @@ const fakeDb = {
       const row = inserted.find((m) => m.id === params[0] && (params[1] == null || m.project_id === params[1]));
       return { rows: row ? [row] : [], rowCount: row ? 1 : 0 };
     }
+    // ---- project admin (edit / delete). Canned: the shared `project` is never mutated.
+    if (s.startsWith('SELECT 1 FROM projects WHERE config_set = $1')) {
+      const used = configSetsInUse.has(params[0] as string);
+      return { rows: used ? [{ '?column?': 1 }] : [], rowCount: used ? 1 : 0 };
+    }
+    if (s.startsWith('INSERT INTO projects')) {
+      const row = { id: '00000000-0000-0000-0000-0000000000aa', slug: params[0], name: params[1], config_set: params[2], created_at: new Date() };
+      return { rows: [row], rowCount: 1 };
+    }
+    if (s.startsWith('UPDATE projects SET name = COALESCE($2, name), slug = COALESCE($3, slug)')) {
+      if (params[0] !== project.slug) return { rows: [], rowCount: 0 };
+      if (params[2] === 'taken') throw Object.assign(new Error('duplicate key'), { code: '23505' });
+      const row = { ...project, name: params[1] ?? project.name, slug: params[2] ?? project.slug };
+      return { rows: [row], rowCount: 1 };
+    }
+    if (s.startsWith('SELECT p.*, COALESCE((SELECT array_agg(domain ORDER BY domain) FROM project_domains')) {
+      expect(s).toContain('FOR UPDATE');
+      if (params[0] !== project.slug) return { rows: [], rowCount: 0 };
+      return { rows: [{ ...project, domains: ['billing.example.com'], emails: '3', templates: '1', api_keys: '2' }], rowCount: 1 };
+    }
+    if (s === 'DELETE FROM projects WHERE id = $1') {
+      deletedProjects.push(params[0] as string);
+      return { rows: [], rowCount: 1 };
+    }
     throw new Error(`fakeDb: unexpected query: ${s}`);
   },
   /** withTransaction checks out a client; the fake has no real transactions. */
@@ -152,7 +180,18 @@ const fakeQueue: Queue = {
   async retryLater() {},
 };
 
-const fakeSes = {} as SesService;
+const fakeSes = {
+  async ensureConfigurationSet(name: string) {
+    sesCalls.push(`ensure ${name}`);
+  },
+  async deleteConfigurationSet(name: string) {
+    sesCalls.push(`delete-config-set ${name}`);
+  },
+  async deleteDomainIdentity(domain: string) {
+    if (failIdentityDelete) throw new Error('SES is down');
+    sesCalls.push(`delete-identity ${domain}`);
+  },
+} as unknown as SesService;
 
 let app: App;
 beforeAll(async () => {
@@ -602,5 +641,85 @@ describe('DELETE /v1/suppressions/:email', () => {
 
   it('404s for an address that is not suppressed', async () => {
     expect((await del('nobody@example.com')).statusCode).toBe(404);
+  });
+});
+
+describe('admin: edit and delete projects', () => {
+  const admin = { authorization: `Bearer ${cfg.ADMIN_TOKEN}` };
+
+  it('renames a project and changes its slug', async () => {
+    const res = await app.inject({ method: 'PATCH', url: '/admin/projects/billing', headers: admin, payload: { name: ' Billing v2 ', slug: 'invoices' } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ slug: 'invoices', name: 'Billing v2', config_set: 'emailsvc-billing' });
+
+    const nameOnly = await app.inject({ method: 'PATCH', url: '/admin/projects/billing', headers: admin, payload: { name: 'Billing' } });
+    expect(nameOnly.json()).toMatchObject({ slug: 'billing', name: 'Billing' });
+  });
+
+  it('rejects empty, invalid, duplicate and unknown edits', async () => {
+    const empty = await app.inject({ method: 'PATCH', url: '/admin/projects/billing', headers: admin, payload: {} });
+    expect(empty.statusCode).toBe(400);
+    const bad = await app.inject({ method: 'PATCH', url: '/admin/projects/billing', headers: admin, payload: { slug: 'Not A Slug' } });
+    expect(bad.statusCode).toBe(400);
+    const dup = await app.inject({ method: 'PATCH', url: '/admin/projects/billing', headers: admin, payload: { slug: 'taken' } });
+    expect(dup.statusCode).toBe(409);
+    expect(dup.json().error.code).toBe('project_exists');
+    const missing = await app.inject({ method: 'PATCH', url: '/admin/projects/nope', headers: admin, payload: { name: 'x' } });
+    expect(missing.statusCode).toBe(404);
+    expect((await app.inject({ method: 'PATCH', url: '/admin/projects/billing', payload: { name: 'x' } })).statusCode).toBe(401);
+  });
+
+  it('refuses to delete without the slug repeated in confirm', async () => {
+    for (const q of ['', '?confirm=', '?confirm=other']) {
+      const res = await app.inject({ method: 'DELETE', url: `/admin/projects/billing${q}`, headers: admin });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.code).toBe('confirmation_required');
+    }
+    expect(deletedProjects).toEqual([]);
+  });
+
+  it('deletes the project and its configuration set, and identities only on request', async () => {
+    sesCalls.length = 0;
+    const res = await app.inject({ method: 'DELETE', url: '/admin/projects/billing?confirm=billing', headers: admin });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ deleted: 'billing', domains: ['billing.example.com'], emails: 3, templates: 1, api_keys: 2, warnings: [] });
+    expect(deletedProjects).toEqual([project.id]);
+    expect(sesCalls).toEqual(['delete-config-set emailsvc-billing']);
+
+    sesCalls.length = 0;
+    const withIds = await app.inject({ method: 'DELETE', url: '/admin/projects/billing?confirm=billing&delete_identities=true', headers: admin });
+    expect(withIds.statusCode).toBe(200);
+    expect(sesCalls).toEqual(['delete-config-set emailsvc-billing', 'delete-identity billing.example.com']);
+
+    const missing = await app.inject({ method: 'DELETE', url: '/admin/projects/nope?confirm=nope', headers: admin });
+    expect(missing.statusCode).toBe(404);
+  });
+
+  it('keeps a configuration set another project still uses, and reports SES failures as warnings', async () => {
+    sesCalls.length = 0;
+    configSetsInUse.add('emailsvc-billing');
+    failIdentityDelete = true;
+    try {
+      const res = await app.inject({ method: 'DELETE', url: '/admin/projects/billing?confirm=billing&delete_identities=true', headers: admin });
+      expect(res.statusCode).toBe(200);
+      expect(sesCalls).toEqual([]);
+      expect(res.json().warnings).toEqual(['Identity for "billing.example.com" could not be deleted: SES is down']);
+    } finally {
+      configSetsInUse.clear();
+      failIdentityDelete = false;
+    }
+  });
+
+  it('gives a new project its own configuration set when a renamed project kept the default name', async () => {
+    configSetsInUse.add('emailsvc-reports');
+    try {
+      const res = await app.inject({ method: 'POST', url: '/admin/projects', headers: admin, payload: { slug: 'reports', name: 'Reports' } });
+      expect(res.statusCode).toBe(201);
+      expect(res.json().config_set).toMatch(/^emailsvc-reports-[0-9a-f]{6}$/);
+      const fresh = await app.inject({ method: 'POST', url: '/admin/projects', headers: admin, payload: { slug: 'fresh', name: 'Fresh' } });
+      expect(fresh.json().config_set).toBe('emailsvc-fresh');
+    } finally {
+      configSetsInUse.clear();
+    }
   });
 });

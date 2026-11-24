@@ -291,8 +291,72 @@
       ]),
       card('Recent emails', el('span', { class: 'actions' }, [statusSel, toInput, el('button', { class: 'small', text: 'Refresh', onclick: loadEmails }), el('a', { href: `#/emails?project=${encodeURIComponent(slug)}&range=30d`, class: 'sub', text: 'Open in email log →' })]), emails),
       detail,
+      projectSettings(p),
     );
     await loadEmails();
+  }
+
+  /** Project settings: rename / change slug, and the delete danger zone. */
+  function projectSettings(p) {
+    const path = `/admin/projects/${encodeURIComponent(p.slug)}`;
+    const nameI = el('input', { type: 'text', value: p.name, required: true, maxlength: 200 });
+    const slugI = el('input', { type: 'text', value: p.slug, required: true, pattern: '[a-z0-9][a-z0-9-]{1,40}', title: 'lowercase letters, digits and dashes', spellcheck: 'false' });
+    const editForm = el('form', { class: 'row', onsubmit: (e) => {
+      e.preventDefault();
+      const body = {};
+      if (nameI.value.trim() !== p.name) body.name = nameI.value.trim();
+      if (slugI.value.trim() !== p.slug) body.slug = slugI.value.trim();
+      if (!Object.keys(body).length) { banner('Nothing to save: the name and slug are unchanged.'); return; }
+      act($('button', editForm), async () => {
+        const up = await api('PATCH', path, body);
+        flash = { msg: `Saved. The project is now ${up.name} (${up.slug}).`, ok: true };
+        const next = `#/projects/${encodeURIComponent(up.slug)}`;
+        if (location.hash !== next) location.hash = next; else route();
+      });
+    } }, [
+      el('label', { class: 'field' }, ['Name', nameI]),
+      el('label', { class: 'field' }, ['Slug', slugI]),
+      el('label', { class: 'field' }, [' ', el('button', { class: 'primary', type: 'submit', text: 'Save changes' })]),
+    ]);
+
+    const confirmI = el('input', { type: 'text', autocomplete: 'off', spellcheck: 'false', placeholder: p.slug, 'aria-label': `Type ${p.slug} to confirm` });
+    const identities = p.domains.length ? el('input', { type: 'checkbox' }) : null;
+    const delBtn = el('button', { class: 'danger', type: 'submit', text: 'Delete this project', disabled: true });
+    confirmI.addEventListener('input', () => { delBtn.disabled = confirmI.value.trim() !== p.slug; });
+    const delForm = el('form', { class: 'row', onsubmit: (e) => {
+      e.preventDefault();
+      if (confirmI.value.trim() !== p.slug) return;
+      act(delBtn, async () => {
+        const q = new URLSearchParams({ confirm: p.slug });
+        if (identities?.checked) q.set('delete_identities', 'true');
+        const r = await api('DELETE', `${path}?${q}`);
+        const what = [`${r.emails} email${r.emails === 1 ? '' : 's'}`, `${r.templates} template${r.templates === 1 ? '' : 's'}`, `${r.api_keys} API key${r.api_keys === 1 ? '' : 's'}`];
+        if (r.domains.length) what.push(`domain${r.domains.length === 1 ? '' : 's'} ${r.domains.join(', ')}`);
+        flash = r.warnings.length
+          ? { msg: `Deleted ${r.deleted} (${what.join(', ')}), with warnings: ${r.warnings.join(' ')}`, ok: false }
+          : { msg: `Deleted ${r.deleted}: ${what.join(', ')}.`, ok: true };
+        location.hash = '#/projects';
+      });
+    } }, [
+      el('label', { class: 'field' }, [el('span', {}, ['Type ', el('code', { text: p.slug }), ' to confirm']), confirmI]),
+      el('label', { class: 'field' }, [' ', delBtn]),
+    ]);
+
+    return card('Settings', null, [
+      el('h3', { text: 'Name and slug' }),
+      el('p', { class: 'sub', text: 'Changing the slug changes this page\'s address and the project filter in the email log. API keys keep working, and the SES configuration set keeps its name, so metrics carry over.' }),
+      editForm,
+      el('div', { class: 'danger-zone' }, [
+        el('h3', { text: 'Delete project' }),
+        el('p', { class: 'sub' }, [
+          'Permanently removes the project with its domains, API keys, templates and every logged email. ',
+          el('strong', { text: 'Apps using its keys stop sending immediately. This cannot be undone.' }),
+          ' Addresses it got suppressed stay on the shared suppression list.',
+        ]),
+        identities ? el('label', { class: 'check' }, [identities, ` Also delete the SES identities for ${p.domains.join(', ')} (skip this if the domain will be attached to another project)`]) : null,
+        delForm,
+      ]),
+    ]);
   }
 
 
@@ -573,6 +637,8 @@
   }
 
   // ---- router ----
+  /** A message to show once the next view has rendered (route() clears the banner). */
+  let flash = null;
   async function route() {
     const h = location.hash || '#/projects';
     const m = h.match(/^#\/projects\/([^/]+)$/);
@@ -585,6 +651,7 @@
       else if (current === 'suppressions') await suppressionsView();
       else if (current === 'emails') await emailsView(new URLSearchParams(h.split('?')[1] || ''));
       else await projectsView();
+      if (flash) { banner(flash.msg, flash.ok); flash = null; }
     } catch (err) {
       if (err.status !== 401) render(el('div', { class: 'card' }, [el('h2', { text: 'Could not load' }), el('p', { class: 'sub', text: describe(err) })]));
     }

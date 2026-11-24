@@ -124,3 +124,9 @@ tr.selected td { background: var(--wash); }
 .attach-list { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
 .attach-list a { font-size: 12px; text-decoration: none; border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; }
 .attach-list a:hover { background: var(--wash); }
+
+/* project settings */
+.danger-zone { margin-top: 18px; padding: 4px 14px 14px; border: 1px solid var(--critical); border-radius: 10px; }
+.danger-zone h3 { color: var(--critical); }
+label.check { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; color: var(--ink-2); margin: 8px 0; }
+label.check > input { margin-top: 2px; }

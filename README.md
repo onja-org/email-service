@@ -56,7 +56,7 @@ Sending to an unverified address in the sandbox fails with `MessageRejected: Ema
 
 ## 3. Admin UI
 
-**`/admin/ui`** does everything the admin API does, from a browser: create projects, attach domains and see the DNS records and verification status, issue and revoke API keys, browse each project's emails with their SES events, and manage the shared suppression list.
+**`/admin/ui`** does everything the admin API does, from a browser: create, rename and delete projects, attach domains and see the DNS records and verification status, issue and revoke API keys, browse each project's emails with their SES events, and manage the shared suppression list.
 
 **Email log (`/admin/ui#/emails`)** lists every email from every project, newest first. Filters:
 - **Time:** Today, Yesterday, Last 7/30/90 days, or a custom date range, in the viewer's local time.
@@ -188,6 +188,8 @@ const { id } = await res.json();
 | `DELETE` | `/v1/suppressions/:email` | Remove a manual suppression this project added (403 for bounces, complaints, or other projects' entries) |
 | `GET/POST` | `/admin/projects` | List / create projects |
 | `GET` | `/admin/projects/:slug` | Project with domains and keys |
+| `PATCH` | `/admin/projects/:slug` | Rename and/or change the slug: `{"name": "...", "slug": "..."}`. API keys keep working; the SES configuration set keeps its name |
+| `DELETE` | `/admin/projects/:slug?confirm=:slug` | Delete the project with its domains, keys, templates and emails. `confirm` must repeat the slug. Also deletes its SES configuration set; add `delete_identities=true` to delete its domains' SES identities. Returns what was removed and any SES `warnings` |
 | `POST/GET/DELETE` | `/admin/projects/:slug/domains[/:domain]` | Attach domain, poll DNS/verification, detach |
 | `POST/DELETE` | `/admin/projects/:slug/keys[/:keyId]` | Issue / revoke API keys |
 | `GET/POST` | `/admin/suppressions` | Global suppression list; add an admin manual entry |
@@ -293,5 +295,6 @@ docker run -d --name email-service -p 3000:3000 --env-file .env email-service
 - **Worker crash mid-send.** A message left in `sending` is re-claimable after 5 minutes; redeliveries wait for that, and the sweep re-enqueues anything stuck for 10 minutes, so a dead worker never loses an email.
 - **Rotate a key:** create a new one, switch the project, revoke the old (`DELETE /admin/projects/:slug/keys/:id`).
 - **Remove a domain from SES too:** `DELETE /admin/projects/:slug/domains/:domain?delete_identity=true`.
+- **Retire a project:** on its page in `/admin/ui`, use Settings → Delete project (type the slug to confirm), or `DELETE /admin/projects/:slug?confirm=:slug`. Its keys stop working immediately and its emails are deleted. Addresses it got suppressed stay on the shared list, no longer attributed to any project.
 - **Retention.** Emails older than `RETENTION_DAYS` (default 90) are deleted together with their SES events and attachments. Unmatched SES events of the same age are deleted too. The worker runs this a minute after start, then every 6 hours, in batches of 1,000. Suppressions are kept: they lose their link to the deleted email but keep protecting the address. Set `RETENTION_DAYS=0` to keep everything. Note that idempotency keys are forgotten along with their emails, and the dashboard can only show what is still stored.
 - **Schema changes:** add `migrations/00N_name.sql`; applied automatically on container start (advisory-locked, so parallel replicas are safe).
