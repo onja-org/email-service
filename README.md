@@ -58,6 +58,8 @@ Sending to an unverified address in the sandbox fails with `MessageRejected: Ema
 
 **`/admin/ui`** does everything the admin API does, from a browser: create, rename and delete projects, attach, fix, move and delete domains and see the DNS records and verification status, issue, rename, revoke and delete API keys, browse each project's emails with their SES events, and manage the shared suppression list.
 
+A new project shows a setup checklist (add a domain → verify its DNS → issue an API key → send a first email) until its first email is sent. A newly issued key is shown once, with a ready-to-run `curl` command that sends a test email with it. Deleting a domain asks, in one confirmation panel, whether to also delete its SES identity. Clicking an email on a project page opens it in the email log with its preview. Success messages appear briefly in the bottom corner; errors stay there until dismissed.
+
 **Email log (`/admin/ui#/emails`)** lists every email from every project, newest first. Filters:
 - **Time:** Today, Yesterday, Last 7/30/90 days, or a custom date range, in the viewer's local time.
 - **Project and sender domain:** a domain also matches its subdomains.

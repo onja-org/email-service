@@ -4,31 +4,42 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pigeon admin</title>
+<meta name="theme-color" content="#f3ede0">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preload" href="/fonts/instrument-sans.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/ui.css">
 </head>
 <body>
-<main>
-  <div class="topbar">
-    <h1>Pigeon</h1>
-    <nav id="nav">
+<div class="airmail-bar" aria-hidden="true"></div>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="#/projects" aria-label="Pigeon admin home">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#c8361d"/><path fill="#fbf7ee" d="M6 41l12-6c6-4 11-7 17-12 0-7 5-12 11-12 4 0 7 3 7 6l6 2-6 2c-1 2-2 4-1 7 3 6 1 13-7 17-8 4-19 4-27 1z"/><path fill="#1d7559" d="M35 23c3 4 9 6 16 4-1-3-1-5 1-8-6 2-12 3-17 4z"/><circle cx="48" cy="15.5" r="1.9" fill="#c8361d"/><path d="M34 50l-1 7m10-8l1 8m-14 0h6m8 0h6" stroke="#1c1a16" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
+      <span class="brand-name">Pigeon</span><span class="brand-tag">Admin</span>
+    </a>
+    <nav id="nav" aria-label="Admin">
       <a href="#/projects" data-route="projects">Projects</a>
-      <a href="#/emails" data-route="emails">Emails</a>
+      <a href="#/emails" data-route="emails">Email log</a>
       <a href="#/suppressions" data-route="suppressions">Suppressions</a>
       <a href="/dashboard">Dashboard</a>
-      <a href="/">Developer guide</a>
+      <a href="/docs">Docs</a>
     </nav>
     <span class="spacer"></span>
-    <span class="sub" id="who"></span>
-    <button class="small" id="signout">Sign out</button>
+    <span class="who" id="who"></span>
+    <button class="small ghost" id="signout">Sign out</button>
   </div>
-  <div class="banner" id="banner" hidden></div>
+</header>
+<main>
   <div id="view"></div>
 </main>
+<div class="toasts" id="toasts" aria-live="polite"></div>
 <script>
 (() => {
   'use strict';
   const $ = (s, el = document) => el.querySelector(s);
   const UI_HEADERS = { 'x-requested-with': 'emailsvc-ui' };
+  const enc = encodeURIComponent;
 
   // ---- DOM helpers: textContent only, every string here comes from the API or the user ----
   const el = (tag, attrs = {}, children = []) => {
@@ -47,9 +58,12 @@
   const clear = (n) => { while (n.firstChild) n.removeChild(n.firstChild); return n; };
   const fmt = (iso) => iso ? new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '–';
   const ago = (iso) => { if (!iso) return 'never'; const s = (Date.now() - new Date(iso)) / 1000; return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`; };
+  const plural = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
   const STATUS_CLASS = { sent: 'good', delivered: 'good', queued: '', sending: '', suppressed: 'warn', failed: 'bad', bounced: 'bad', complained: 'bad' };
   const chip = (text, cls) => el('span', { class: `chip ${cls || ''}`, text });
-  const statusChip = (s) => chip(s, STATUS_CLASS[s] ?? '');
+  const statusChip = (s) => chip(s, `dot ${STATUS_CLASS[s] ?? ''}`);
+  const loadingCard = (text = 'Loading…') => el('div', { class: 'card loading-card', text });
+  const field = (label, input, hint) => el('label', { class: 'field' }, [label, input, hint ? el('span', { class: 'hint', text: hint }) : null]);
 
   // ---- API ----
   class ApiError extends Error { constructor(status, body) { super(body?.error?.message || `HTTP ${status}`); this.status = status; this.code = body?.error?.code; this.details = body?.error?.details; } }
@@ -59,7 +73,7 @@
       headers: { ...UI_HEADERS, ...(body ? { 'content-type': 'application/json' } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     });
-    if (res.status === 401) { location.replace(`/admin/login?reason=expired&next=${encodeURIComponent('/admin/ui' + location.hash)}`); throw new ApiError(401, null); }
+    if (res.status === 401) { location.replace(`/admin/login?reason=expired&next=${enc('/admin/ui' + location.hash)}`); throw new ApiError(401, null); }
     if (res.status === 204) return null;
     const json = await res.json().catch(() => null);
     if (!res.ok) throw new ApiError(res.status, json);
@@ -67,13 +81,18 @@
   }
   const get = (p) => api('GET', p);
 
-  // ---- feedback ----
-  let bannerTimer;
+  // ---- feedback: toasts in a corner, so they are seen wherever the action was on the page ----
+  /** banner(msg, ok): success fades after a few seconds, errors stay until dismissed. banner(null) clears all. */
   function banner(msg, ok = false) {
-    const b = $('#banner'); clearTimeout(bannerTimer);
-    if (!msg) { b.hidden = true; return; }
-    b.textContent = msg; b.className = `banner${ok ? ' ok' : ''}`; b.hidden = false;
-    if (ok) bannerTimer = setTimeout(() => { b.hidden = true; }, 4000);
+    const host = $('#toasts');
+    if (!msg) { clear(host); return; }
+    const t = el('div', { class: `toast${ok ? '' : ' error'}`, role: ok ? 'status' : 'alert' }, [
+      el('div', { class: 'msg', text: msg }),
+      el('button', { class: 'small ghost', type: 'button', 'aria-label': 'Dismiss', text: '✕', onclick: () => t.remove() }),
+    ]);
+    if (!ok) host.querySelectorAll('.toast.error').forEach((x) => x.remove()); // one error at a time
+    host.append(t);
+    if (ok) setTimeout(() => t.remove(), 5000);
   }
   function describe(err) {
     if (err instanceof ApiError && Array.isArray(err.details) && err.details.length) {
@@ -81,82 +100,110 @@
     }
     return err.message || String(err);
   }
-  /** Runs an action from a form/button, disabling it meanwhile and reporting errors in the banner. */
+  /** Runs an action from a form/button, showing a spinner on it meanwhile and reporting errors. */
   async function act(btn, fn, okMsg) {
-    btn.disabled = true; banner(null);
-    try { await fn(); if (okMsg) banner(okMsg, true); } catch (err) { banner(describe(err)); } finally { btn.disabled = false; }
+    btn.disabled = true; btn.classList.add('busy'); banner(null);
+    try { await fn(); if (okMsg) banner(okMsg, true); } catch (err) { banner(describe(err)); } finally { btn.disabled = false; btn.classList.remove('busy'); }
   }
   /** Two-step inline confirmation (no window.confirm). Returns a button that turns into "Confirm / Cancel". */
-  function confirmButton(label, onConfirm, cls = 'danger', confirmLabel = 'Confirm') {
+  function confirmButton(label, onConfirm, cls = 'danger', confirmLabel = 'Confirm', okMsg) {
     const wrap = el('span', { class: 'actions' });
     const main = el('button', { class: `small ${cls}`, text: label, onclick: () => {
       clear(wrap);
-      wrap.append(
-        el('button', { class: `small ${cls}`, text: confirmLabel, onclick: (e) => act(e.target, onConfirm) }),
-        el('button', { class: 'small', text: 'Cancel', onclick: () => { clear(wrap); wrap.append(main); } }),
-      );
+      const yes = el('button', { class: `small ${cls} solid`, text: confirmLabel, onclick: (e) => act(e.currentTarget, onConfirm, okMsg) });
+      wrap.append(yes, el('button', { class: 'small', text: 'Cancel', onclick: () => { clear(wrap); wrap.append(main); main.focus(); } }));
+      yes.focus();
     } });
     wrap.append(main);
     return wrap;
   }
-  const copyButton = (text) => el('button', { class: 'small', text: 'Copy', onclick: async (e) => {
-    try { await navigator.clipboard.writeText(text); e.target.textContent = 'Copied'; setTimeout(() => { e.target.textContent = 'Copy'; }, 1500); } catch { banner('Clipboard unavailable; select the text and copy it manually.'); }
+  const copyButton = (text, label = 'Copy') => el('button', { class: 'small', type: 'button', text: label, onclick: async (e) => {
+    const b = e.currentTarget;
+    try { await navigator.clipboard.writeText(text); b.textContent = 'Copied ✓'; setTimeout(() => { b.textContent = label; }, 1500); } catch { banner('Clipboard unavailable; select the text and copy it manually.'); }
   } });
   function table(headers, rows, emptyText) {
-    if (!rows.length) return el('div', { class: 'empty', text: emptyText });
+    if (!rows.length) return el('div', { class: 'empty' }, [].concat(emptyText));
     return el('div', { class: 'table-wrap' }, el('table', {}, [
-      el('thead', {}, el('tr', {}, headers.map((h) => el('th', { class: h.num ? 'num' : '', text: h.text ?? h })))),
+      el('thead', {}, el('tr', {}, headers.map((h) => el('th', { class: h.num ? 'num' : h.right ? 'right' : '', text: h.text ?? h })))),
       el('tbody', {}, rows),
     ]));
   }
-  const card = (title, sub, body) => el('section', { class: 'card' }, [
-    el('div', { class: 'card-head' }, [el('h2', { text: title }), sub ? el('span', { class: 'sub' }, sub) : null]),
+  const card = (title, sub, body, { desc, ...attrs } = {}) => el('section', { class: 'card', ...attrs }, [
+    el('div', { class: 'card-head' }, [el('h2', { text: title }), sub ? el('span', { class: 'sub' }, sub) : null, desc ? el('p', { class: 'sub desc', text: desc }) : null]),
     ...[].concat(body),
   ]);
+  const pageHead = (title, sub, actions) => el('div', { class: 'page-head' }, [
+    el('div', {}, [el('h1', { text: title }), sub ? el('div', { class: 'sub' }, sub) : null]),
+    actions ? el('div', { class: 'actions' }, actions) : null,
+  ]);
+  const slugify = (s) => s.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+/, '').slice(0, 41).replace(/-+$/, '');
 
   // ---- views ----
   const view = $('#view');
-  const render = (...nodes) => { clear(view); view.append(...nodes); };
+  const render = (...nodes) => { clear(view); view.append(...nodes.filter(Boolean)); };
+  const setTitle = (t) => { document.title = `${t} · Pigeon admin`; };
 
   async function projectsView() {
-    render(el('div', { class: 'card loading', text: 'Loading…' }));
+    setTitle('Projects');
+    render(loadingCard());
     const { data } = await get('/admin/projects');
+
+    // -- new project: name first, slug follows it until edited by hand
+    const nameI = el('input', { type: 'text', required: true, maxlength: 200, placeholder: 'Billing app', autocomplete: 'off' });
+    const slugI = el('input', { type: 'text', required: true, pattern: '[a-z0-9][a-z0-9\\-]{1,40}', placeholder: 'billing-app', title: '2–41 lowercase letters, digits and dashes', spellcheck: 'false', autocomplete: 'off' });
+    let slugTouched = false;
+    nameI.addEventListener('input', () => { if (!slugTouched) slugI.value = slugify(nameI.value); });
+    slugI.addEventListener('input', () => { slugTouched = slugI.value !== ''; });
     const form = el('form', { class: 'row', onsubmit: (e) => {
       e.preventDefault();
-      const slug = $('#new-slug', form).value.trim(), name = $('#new-name', form).value.trim();
-      act($('button', form), async () => {
+      const slug = slugI.value.trim(), name = nameI.value.trim();
+      act($('button[type=submit]', form), async () => {
         await api('POST', '/admin/projects', { slug, name });
-        location.hash = `#/projects/${encodeURIComponent(slug)}`;
-      }, null);
+        flash = { msg: `Created ${name}. Next: add the domain it will send from.`, ok: true };
+        location.hash = `#/projects/${enc(slug)}`;
+      });
     } }, [
-      el('label', { class: 'field' }, ['Slug', el('input', { type: 'text', id: 'new-slug', required: true, pattern: '[a-z0-9][a-z0-9-]{1,40}', placeholder: 'billing', title: 'lowercase letters, digits and dashes' })]),
-      el('label', { class: 'field' }, ['Name', el('input', { type: 'text', id: 'new-name', required: true, placeholder: 'Billing app' })]),
-      el('label', { class: 'field' }, [' ', el('button', { class: 'primary', type: 'submit', text: 'Create project' })]),
+      field('Project name', nameI),
+      field('Slug', slugI, 'Used in URLs. Lowercase letters, digits and dashes.'),
+      el('label', { class: 'field narrow' }, [el('span', { 'aria-hidden': 'true', text: ' ' }), el('span', { class: 'actions' }, [
+        el('button', { class: 'primary', type: 'submit', text: 'Create project' }),
+        data.length ? el('button', { type: 'button', class: 'ghost', text: 'Cancel', onclick: () => { newCard.hidden = true; form.reset(); slugTouched = false; } }) : null,
+      ]), el('span', { class: 'hint', 'aria-hidden': 'true', text: ' ' })]),
     ]);
-    const rows = data.map((p) => el('tr', { class: 'clickable', onclick: () => { location.hash = `#/projects/${encodeURIComponent(p.slug)}`; } }, [
-      el('td', {}, el('a', { href: `#/projects/${encodeURIComponent(p.slug)}`, text: p.slug })),
-      el('td', { text: p.name }),
-      el('td', {}, p.domains.length ? p.domains.map((d) => chip(d)) : el('span', { class: 'muted', text: 'no domains yet' })),
-      el('td', { text: fmt(p.created_at) }),
-    ]));
+    const newCard = card('New project', null, form, { desc: 'Creates the project and its SES configuration set. You will add a sending domain and an API key next.', hidden: data.length > 0 });
+
+    const rows = data.map((p) => {
+      const href = `#/projects/${enc(p.slug)}`;
+      return el('tr', { class: 'clickable', onclick: (e) => { if (!e.target.closest('a')) location.hash = href; } }, [
+        el('td', {}, [el('a', { href, class: 'primary-text', text: p.name || p.slug }), el('div', { class: 'mono muted', text: p.slug })]),
+        el('td', {}, p.domains.length ? el('span', { class: 'chips' }, p.domains.map((d) => chip(d))) : chip('needs a domain', 'warn')),
+        el('td', { class: 'muted', text: fmt(p.created_at) }),
+      ]);
+    });
     render(
-      card('New project', 'Creates the project and its SES configuration set. Attach a domain next.', form),
-      card('Projects', `${data.length} total`, table(['Slug', 'Name', 'Domains', 'Created'], rows, 'No projects yet. Create one above.')),
+      pageHead('Projects', 'Each app that sends email is a project, with its own sending domains, API keys and email log.',
+        [el('button', { class: 'primary', text: '+ New project', onclick: () => { newCard.hidden = false; nameI.focus(); } })]),
+      newCard,
+      card('All projects', plural(data.length, 'project'), table(['Project', 'Sending domains', 'Created'], rows,
+        [el('strong', { text: 'No projects yet' }), 'Create one above to get an API key for your app.'])),
     );
+    if (!data.length) nameI.focus();
   }
 
   async function projectView(slug) {
-    render(el('div', { class: 'card loading', text: 'Loading…' }));
-    const p = await get(`/admin/projects/${encodeURIComponent(slug)}`);
+    render(loadingCard());
+    const p = await get(`/admin/projects/${enc(slug)}`);
+    setTitle(p.name);
     const reload = () => projectView(slug);
+    const domainBase = `/admin/projects/${enc(slug)}/domains`;
+    const keyBase = `/admin/projects/${enc(slug)}/keys`;
 
-    // -- domains
-    const domainBase = `/admin/projects/${encodeURIComponent(slug)}/domains`;
-    /** Swaps a domain's action bar for an inline form: fix the name and/or move it to another project. */
+    // ---- domains
+    /** Swaps a domain's header for an inline form: fix the name and/or move it to another project. */
     async function editDomain(domain, slot) {
       const { data: projects } = await get('/admin/projects');
-      const nameI = el('input', { type: 'text', value: domain, required: true, pattern: '[A-Za-z0-9.-]+\\.[A-Za-z0-9-]+', 'aria-label': 'Domain', spellcheck: 'false' });
-      const projSel = el('select', { 'aria-label': 'Project' }, projects.map((x) => el('option', { value: x.slug, text: x.name ? `${x.name} (${x.slug})` : x.slug, selected: x.slug === p.slug })));
+      const nameI = el('input', { type: 'text', value: domain, required: true, pattern: '[A-Za-z0-9.\\-]+\\.[A-Za-z0-9\\-]+', spellcheck: 'false' });
+      const projSel = el('select', {}, projects.map((x) => el('option', { value: x.slug, text: x.name ? `${x.name} (${x.slug})` : x.slug, selected: x.slug === p.slug })));
       const dropOld = el('input', { type: 'checkbox' });
       const dropWrap = el('label', { class: 'check', hidden: true }, [dropOld, ` Also delete the SES identity for ${domain}`]);
       const renameNote = el('p', { class: 'sub', hidden: true, text: 'A new name must be verified again: you will get fresh DNS records to add.' });
@@ -169,16 +216,16 @@
         if (!Object.keys(body).length) { banner('Nothing to save: the domain and project are unchanged.'); return; }
         act($('button[type=submit]', form), async () => {
           const q = body.domain && dropOld.checked ? '?delete_identity=true' : '';
-          const r = await api('PATCH', `${domainBase}/${encodeURIComponent(domain)}${q}`, body);
+          const r = await api('PATCH', `${domainBase}/${enc(domain)}${q}`, body);
           const did = [body.domain ? `renamed to ${r.domain}` : null, body.project ? `moved to ${r.project}` : null].filter(Boolean).join(' and ');
-          const next = body.domain && !body.project ? ' Add its DNS records below, then re-check.' : '';
+          const next = body.domain && !body.project ? ' Add its DNS records, then re-check.' : '';
           flash = r.warnings.length ? { msg: `${domain} ${did}. ${r.warnings.join(' ')}`, ok: false } : { msg: `${domain} ${did}.${next}`, ok: true };
           await route();
         });
       } }, [
-        el('label', { class: 'field' }, ['Domain', nameI]),
-        el('label', { class: 'field' }, ['Project', projSel]),
-        el('label', { class: 'field' }, [' ', el('span', { class: 'actions' }, [
+        field('Domain', nameI),
+        field('Project', projSel),
+        el('label', { class: 'field narrow' }, [el('span', { 'aria-hidden': 'true', text: ' ' }), el('span', { class: 'actions' }, [
           el('button', { class: 'primary', type: 'submit', text: 'Save' }),
           el('button', { type: 'button', text: 'Cancel', onclick: reload }),
         ])]),
@@ -188,168 +235,206 @@
     }
     const domainRows = await Promise.all(p.domains.map(async (d) => {
       let identity = null, err = null;
-      try { identity = await get(`/admin/projects/${encodeURIComponent(slug)}/domains/${encodeURIComponent(d)}`); } catch (e) { err = e; }
+      try { identity = await get(`${domainBase}/${enc(d)}`); } catch (e) { err = e; }
       return { domain: d, identity, err };
     }));
-    const domainsBody = domainRows.length ? domainRows.map(({ domain, identity, err }) => {
+    function domainBlock({ domain, identity, err }) {
       const status = err ? chip(`SES error: ${err.message}`, 'bad')
-        : identity.verified ? chip('verified', 'good') : chip(`pending (DKIM ${identity.dkimStatus})`, 'warn');
+        : identity.verified ? chip('verified · ready to send', 'dot good') : chip(`waiting for DNS (DKIM ${identity.dkimStatus})`, 'dot warn');
       const dns = identity?.dnsRecords?.length
         ? el('details', { open: !identity.verified }, [
-            el('summary', { text: `DNS records (${identity.dnsRecords.length})` }),
-            el('p', { class: 'sub' }, [
+            el('summary', { text: identity.verified ? `DNS records (${identity.dnsRecords.length})` : `Add these ${identity.dnsRecords.length} DNS records to verify it` }),
+            el('div', { class: 'notice info' }, [
               'Add these at the DNS provider for ', el('code', { text: domain }), '. Enter the ', el('strong', { text: 'Host' }),
-              ' column exactly as shown: Namecheap, GoDaddy, Cloudflare and most registrars append the domain themselves, so typing the full name creates ',
-              el('code', { text: `…${domain}.${domain}` }), ' and verification never completes. For MX, enter the value without the leading priority number and put 10 in the priority field.',
+              ' exactly as shown: Namecheap, GoDaddy, Cloudflare and most registrars append the domain themselves, so typing the full name creates ',
+              el('code', { text: `…${domain}.${domain}` }), ' and verification never completes. For MX, enter the value without the leading priority number and put 10 in the priority field. DNS changes can take a few minutes to an hour; then click Re-check.',
             ]),
-            table(['Type', 'Host', '', 'Value', '', 'Purpose'], identity.dnsRecords.map((r) => el('tr', {}, [
-              el('td', { text: r.type }),
-              el('td', { class: 'wrap' }, [el('code', { text: r.host ?? r.name }), el('div', { class: 'muted', style: 'font-size:11px' }, [`full name: ${r.name}`])]),
-              el('td', {}, copyButton(r.host ?? r.name)),
-              el('td', { class: 'wrap' }, el('code', { text: r.value })),
-              el('td', {}, copyButton(r.value)),
+            table(['Type', 'Host', 'Value', 'Purpose'], identity.dnsRecords.map((r) => el('tr', {}, [
+              el('td', {}, el('strong', { text: r.type })),
+              el('td', { class: 'wrap' }, [el('div', { class: 'actions' }, [el('code', { text: r.host ?? r.name }), copyButton(r.host ?? r.name)]), el('div', { class: 'muted', style: 'font-size:11.5px;margin-top:2px' }, [`full name: ${r.name}`])]),
+              el('td', { class: 'wrap' }, el('div', { class: 'actions' }, [el('code', { text: r.value }), copyButton(r.value)])),
               el('td', { class: 'sub', text: r.purpose }),
             ])), ''),
           ])
         : null;
-      const mailFrom = identity?.mailFromStatus ? el('div', { class: 'sub' }, [`Custom MAIL FROM: ${identity.mailFromStatus}`]) : null;
-      const actions = el('div', { class: 'actions' }, [
-        el('strong', { text: domain }), status,
-        el('button', { class: 'small', text: 'Re-check', onclick: reload }),
-        el('button', { class: 'small', text: 'Edit', onclick: (e) => act(e.target, () => editDomain(domain, actions)) }),
-        confirmButton('Delete', async () => { await api('DELETE', `${domainBase}/${encodeURIComponent(domain)}`); reload(); }, 'danger', 'Confirm: stop sending from it'),
-        confirmButton('Delete + SES identity', async () => { await api('DELETE', `${domainBase}/${encodeURIComponent(domain)}?delete_identity=true`); reload(); }, 'danger', 'Confirm: DNS must be re-verified to re-add'),
+      const mailFrom = identity?.mailFromStatus ? el('div', { class: 'sub', style: 'margin-top:6px' }, [`Custom MAIL FROM: ${identity.mailFromStatus}`]) : null;
+
+      // One "Delete…" button; the panel says what happens and offers the SES identity option.
+      const alsoIdentity = el('input', { type: 'checkbox' });
+      const delPanel = el('div', { class: 'confirm-panel', hidden: true }, [
+        el('p', {}, [el('strong', { text: `Delete ${domain} from ${p.name}?` }), ' The project stops sending from it immediately.']),
+        el('label', { class: 'check' }, [alsoIdentity, el('span', {}, ['Also delete its SES identity. ', el('span', { class: 'muted', text: 'Skip this if the domain will be attached to another project: re-adding it means verifying its DNS again.' })])]),
+        el('div', { class: 'actions' }, [
+          el('button', { class: 'small danger solid', text: 'Delete domain', onclick: (e) => act(e.currentTarget, async () => {
+            await api('DELETE', `${domainBase}/${enc(domain)}${alsoIdentity.checked ? '?delete_identity=true' : ''}`); await reload();
+          }, `Deleted ${domain}${alsoIdentity.checked ? ' and its SES identity' : ''}.`) }),
+          el('button', { class: 'small', text: 'Cancel', onclick: () => { delPanel.hidden = true; } }),
+        ]),
       ]);
-      return el('div', { class: 'notice' }, [actions, mailFrom, dns]);
-    }) : [el('div', { class: 'empty', text: 'No domains. The project cannot send until one is attached and verified.' })];
+      const head = el('div', { class: 'domain-head' }, [
+        el('span', { class: 'name', text: domain }), status, el('span', { class: 'spacer' }),
+        el('button', { class: 'small', text: 'Re-check', onclick: (e) => act(e.currentTarget, reload) }),
+        el('button', { class: 'small', text: 'Edit', onclick: (e) => act(e.currentTarget, () => editDomain(domain, head)) }),
+        el('button', { class: 'small danger', text: 'Delete…', onclick: () => { delPanel.hidden = !delPanel.hidden; } }),
+      ]);
+      return el('div', { class: 'domain' }, [head, delPanel, mailFrom, dns]);
+    }
+    const domainInput = el('input', { type: 'text', placeholder: 'mail.example.com', required: true, pattern: '[A-Za-z0-9.\\-]+\\.[A-Za-z0-9\\-]+', spellcheck: 'false', autocomplete: 'off' });
     const domainForm = el('form', { class: 'row', onsubmit: (e) => {
       e.preventDefault();
-      const domain = $('input', domainForm).value.trim().toLowerCase();
-      act($('button', domainForm), async () => { await api('POST', `/admin/projects/${encodeURIComponent(slug)}/domains`, { domain }); reload(); }, `Attached ${domain}. Add the DNS records shown, then re-check.`);
+      const domain = domainInput.value.trim().toLowerCase();
+      act($('button', domainForm), async () => { await api('POST', domainBase, { domain }); await reload(); }, `Added ${domain}. Add the DNS records shown, then re-check.`);
     } }, [
-      el('input', { type: 'text', placeholder: 'mail.example.com', required: true, pattern: '[A-Za-z0-9.-]+\\.[A-Za-z0-9-]+' }),
-      el('button', { class: 'primary', type: 'submit', text: 'Attach domain' }),
+      field(p.domains.length ? 'Add another domain' : 'Add a sending domain', domainInput, 'The domain in your From address, e.g. example.com or mail.example.com.'),
+      el('label', { class: 'field narrow' }, [el('span', { 'aria-hidden': 'true', text: ' ' }), el('button', { class: p.domains.length ? '' : 'primary', type: 'submit', text: 'Add domain' }), el('span', { class: 'hint', 'aria-hidden': 'true', text: ' ' })]),
     ]);
+    const domainsCard = card('Sending domains', p.domains.length ? plural(p.domains.length, 'domain') : null, [
+      ...(domainRows.length ? domainRows.map(domainBlock) : [el('div', { class: 'empty' }, [el('strong', { text: 'No domains yet' }), 'The project cannot send until one is added and verified.'])]),
+      el('div', { class: 'card-foot' }, domainForm),
+    ], { desc: 'Emails can only be sent from addresses on these domains, once their DNS is verified.', id: 'domains' });
 
-    // -- keys
-    const keyBase = `/admin/projects/${encodeURIComponent(slug)}/keys`;
+    // ---- API keys
     let keyTable = el('div');
     const renderKeys = () => {
-      const tbl = table(['Name', 'Prefix', 'Created', 'Last used', 'Status', ''], p.api_keys.map(keyRow), 'No API keys yet.');
+      const tbl = table(['Name', 'Key', 'Created', 'Last used', 'Status', { text: '', right: true }], p.api_keys.map(keyRow),
+        [el('strong', { text: 'No API keys yet' }), 'Issue one below and give it to the app that sends email.']);
       keyTable.replaceWith(tbl); keyTable = tbl;
+      renderSteps();
     };
-    const refreshKeys = async () => { p.api_keys = (await get(`/admin/projects/${encodeURIComponent(slug)}`)).api_keys; renderKeys(); };
+    const refreshKeys = async () => { p.api_keys = (await get(`/admin/projects/${enc(slug)}`)).api_keys; renderKeys(); };
     function keyRow(k) {
-      const nameCell = el('td', { text: k.name });
+      const nameCell = el('td', {}, el('span', { class: 'primary-text', text: k.name }));
       const rename = () => {
         const input = el('input', { type: 'text', value: k.name, required: true, maxlength: 100, 'aria-label': 'Key name' });
-        const form = el('form', { class: 'row', onsubmit: (e) => {
+        const form = el('form', { class: 'actions', onsubmit: (e) => {
           e.preventDefault();
           act($('button', form), async () => { await api('PATCH', `${keyBase}/${k.id}`, { name: input.value.trim() }); await refreshKeys(); }, 'Key renamed.');
         } }, [input, el('button', { class: 'small primary', type: 'submit', text: 'Save' }), el('button', { class: 'small', type: 'button', text: 'Cancel', onclick: renderKeys })]);
-        clear(nameCell).append(form); input.focus();
+        clear(nameCell).append(form); input.focus(); input.select();
       };
       return el('tr', {}, [
         nameCell, el('td', {}, el('code', { text: `${k.prefix}…` })),
-        el('td', { text: fmt(k.created_at) }), el('td', { text: ago(k.last_used_at) }),
-        el('td', {}, k.revoked_at ? chip(`revoked ${fmt(k.revoked_at)}`, 'bad') : chip('active', 'good')),
-        el('td', {}, el('span', { class: 'actions' }, [
-          el('button', { class: 'small', text: 'Rename', onclick: rename }),
-          k.revoked_at ? null : confirmButton('Revoke', async () => { await api('DELETE', `${keyBase}/${k.id}`); await refreshKeys(); }, 'danger', 'Confirm revoke'),
+        el('td', { class: 'muted', text: fmt(k.created_at) }), el('td', { class: k.last_used_at ? '' : 'muted', text: ago(k.last_used_at) }),
+        el('td', {}, k.revoked_at ? chip(`revoked ${fmt(k.revoked_at)}`, 'bad') : chip('active', 'dot good')),
+        el('td', { class: 'right' }, el('span', { class: 'actions' }, [
+          el('button', { class: 'small ghost', text: 'Rename', onclick: rename }),
+          k.revoked_at ? null : confirmButton('Revoke', async () => { await api('DELETE', `${keyBase}/${k.id}`); await refreshKeys(); }, 'danger', 'Revoke: apps using it stop', `Revoked "${k.name}".`),
           confirmButton('Delete', async () => { await api('DELETE', `${keyBase}/${k.id}?permanent=true`); await refreshKeys(); }, 'danger',
-            k.revoked_at ? 'Confirm delete' : 'Confirm: apps using it stop'),
+            k.revoked_at ? 'Delete for good' : 'Delete: apps using it stop', `Deleted "${k.name}".`),
         ])),
       ]);
     }
-    renderKeys();
+    const sendExample = (key) => {
+      const from = p.domains[0] ? `no-reply@${p.domains[0]}` : 'no-reply@your-domain.com';
+      return `curl ${location.origin}/v1/emails \\\n  -H "Authorization: Bearer ${key}" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "from": "${from}",\n    "to": ["you@example.com"],\n    "subject": "Hello from Pigeon",\n    "text": "It works!"\n  }'`;
+    };
     const newKey = el('div');
+    const keyInput = el('input', { type: 'text', placeholder: 'production', required: true, maxlength: 100, autocomplete: 'off' });
     const keyForm = el('form', { class: 'row', onsubmit: (e) => {
       e.preventDefault();
-      const name = $('input', keyForm).value.trim();
+      const name = keyInput.value.trim();
       act($('button', keyForm), async () => {
         const k = await api('POST', keyBase, { name });
-        clear(newKey).append(el('div', { class: 'notice' }, [
-          el('div', {}, [el('strong', { text: `Key "${k.name}" created. ` }), 'Copy it now: it is shown once and never stored in plaintext.']),
-          el('div', { class: 'secret' }, [el('code', { text: k.key }), copyButton(k.key)]),
+        const example = sendExample(k.key);
+        clear(newKey).append(el('div', { class: 'notice success' }, [
+          el('div', {}, [el('strong', { text: `Key "${k.name}" created. ` }), 'Copy it now: it is shown only once and never stored in plaintext.']),
+          el('div', { class: 'secret' }, [el('code', { text: k.key }), copyButton(k.key, 'Copy key')]),
+          el('details', { style: 'margin-top:10px' }, [
+            el('summary', { text: 'Try it: send a test email from your terminal' }),
+            el('div', { class: 'code-block' }, [el('pre', { text: example }), copyButton(example)]),
+            el('div', { class: 'sub' }, ['Change the To address to yours. ', p.domains.length ? null : 'Add and verify a sending domain first. ', el('a', { href: '/docs', text: 'Developer guide →' })]),
+          ]),
         ]));
         keyForm.reset();
         await refreshKeys(); // keeps the one-time key box
       });
     } }, [
-      el('input', { type: 'text', placeholder: 'production', required: true, maxlength: 100 }),
-      el('button', { class: 'primary', type: 'submit', text: 'Issue key' }),
+      field('Name for a new key', keyInput, 'Where it will be used, e.g. production or staging.'),
+      el('label', { class: 'field narrow' }, [el('span', { 'aria-hidden': 'true', text: ' ' }), el('button', { class: 'primary', type: 'submit', text: 'Issue key' }), el('span', { class: 'hint', 'aria-hidden': 'true', text: ' ' })]),
     ]);
+    const keysCard = card('API keys', null, [keyTable, newKey, el('div', { class: 'card-foot' }, keyForm)],
+      { desc: 'Your app sends with one of these as a Bearer token. Use a separate key per environment so you can revoke one without touching the others.', id: 'keys' });
 
-    // -- templates (read-only; projects manage them with their key)
-    const { data: templates } = await get(`/admin/projects/${encodeURIComponent(slug)}/templates`);
-    const templateTable = table(['Name', 'Subject', 'Bodies', 'Updated'], templates.map((t) => el('tr', {}, [
-      el('td', {}, el('code', { text: t.name })), el('td', { class: 'wrap', text: t.subject }),
-      el('td', {}, [t.has_html ? chip('html') : null, ' ', t.has_text ? chip('text') : null]), el('td', { text: fmt(t.updated_at) }),
-    ])), 'No templates. Projects create them with PUT /v1/templates/:name using their API key.');
+    // ---- templates (read-only; projects manage them with their key)
+    const { data: templates } = await get(`/admin/projects/${enc(slug)}/templates`);
+    const templatesCard = card('Templates', templates.length ? plural(templates.length, 'template') : null,
+      table(['Name', 'Subject', 'Parts', 'Updated'], templates.map((t) => el('tr', {}, [
+        el('td', {}, el('code', { text: t.name })), el('td', { class: 'wrap', text: t.subject }),
+        el('td', {}, el('span', { class: 'chips' }, [t.has_html ? chip('html') : null, t.has_text ? chip('text') : null])), el('td', { class: 'muted', text: fmt(t.updated_at) }),
+      ])), [el('strong', { text: 'No templates' }), 'Apps create them with PUT /v1/templates/:name using their API key.']),
+      { desc: 'Reusable emails the app fills in with its own data. Read-only here.' });
 
-    // -- emails
+    // ---- recent emails: a click opens the email in the log, with its preview
     const emails = el('div');
-    const statusSel = el('select', {}, [el('option', { value: '', text: 'All statuses' }), ...Object.keys(STATUS_CLASS).map((s) => el('option', { value: s, text: s }))]);
-    const toInput = el('input', { type: 'search', placeholder: 'filter by recipient' });
-    const detail = el('div');
+    const statusSel = el('select', { 'aria-label': 'Status' }, [el('option', { value: '', text: 'All statuses' }), ...Object.keys(STATUS_CLASS).map((s) => el('option', { value: s, text: s }))]);
+    const toInput = el('input', { type: 'search', placeholder: 'Recipient contains…', 'aria-label': 'Recipient' });
+    let emailCount = null; // unfiltered count from the first load, for the setup checklist
     async function loadEmails() {
       emails.classList.add('loading');
       const q = new URLSearchParams({ limit: '50' });
       if (statusSel.value) q.set('status', statusSel.value);
       if (toInput.value.trim()) q.set('to', toInput.value.trim());
-      const { data } = await get(`/admin/projects/${encodeURIComponent(slug)}/emails?${q}`);
-      clear(emails).append(table(['Created', 'To', 'Subject', 'Status', 'Attempts', 'Error'], data.map((m) => el('tr', { class: 'clickable', onclick: () => showEmail(m.id) }, [
-        el('td', { text: fmt(m.created_at) }), el('td', { class: 'wrap', text: m.to.join(', ') || (m.suppressed_recipients.length ? '(all suppressed)' : '') }),
-        el('td', { class: 'wrap', text: m.subject }), el('td', {}, statusChip(m.status)), el('td', { class: 'num', text: String(m.attempts) }),
-        el('td', { class: 'sub wrap', text: m.last_error || '' }),
-      ])), 'No emails match.'));
+      const { data } = await get(`/admin/projects/${enc(slug)}/emails?${q}`);
+      if (emailCount == null) { emailCount = data.length; renderSteps(); }
+      const open = (m) => { location.hash = `#/emails?project=${enc(slug)}&range=90d&id=${enc(m.id)}`; };
+      clear(emails).append(table(['Created', 'To', 'Subject', 'Status', { text: 'Tries', num: true }], data.map((m) => el('tr', { class: 'clickable', title: 'Open with preview', onclick: () => open(m) }, [
+        el('td', { class: 'muted', text: fmt(m.created_at) }), el('td', { class: 'wrap', text: m.to.join(', ') || (m.suppressed_recipients.length ? '(all suppressed)' : '') }),
+        el('td', { class: 'wrap' }, [el('div', { text: m.subject }), m.last_error ? el('div', { class: 'sub', text: m.last_error }) : null]),
+        el('td', {}, statusChip(m.status)), el('td', { class: 'num', text: String(m.attempts) }),
+      ])), statusSel.value || toInput.value.trim() ? 'No emails match.' : [el('strong', { text: 'Nothing sent yet' }), 'Emails this project sends show up here.']));
       emails.classList.remove('loading');
-    }
-    async function showEmail(id) {
-      clear(detail).append(el('div', { class: 'card loading', text: 'Loading…' }));
-      const m = await get(`/admin/emails/${id}`);
-      const kv = (pairs) => el('dl', { class: 'kv' }, pairs.flatMap(([k, v]) => v == null || v === '' ? [] : [el('dt', { text: k }), el('dd', {}, typeof v === 'string' ? v : v)]));
-      clear(detail).append(card(`Email ${m.id}`, el('button', { class: 'small', text: 'Close', onclick: () => clear(detail) }), [
-        kv([
-          ['Status', statusChip(m.status)], ['From', m.from], ['To', m.to.join(', ')], ['Cc', m.cc.join(', ')], ['Bcc', m.bcc.join(', ')],
-          ['Suppressed', m.suppressed_recipients.join(', ')], ['Reply-to', m.reply_to.join(', ')], ['Subject', m.subject],
-          ['Attachments', (m.attachments || []).map((a) => `${a.filename} (${a.size < 1024 ? `${a.size} B` : `${Math.ceil(a.size / 1024)} KB`}${a.content_id ? `, inline cid:${a.content_id}` : ''})`).join(', ')],
-          ['Template', m.template], ['Tags', Object.entries(m.tags).map(([k, v]) => `${k}=${v}`).join(', ')],
-          ['Idempotency key', m.idempotency_key], ['Attempts', String(m.attempts)], ['Last error', m.last_error],
-          ['SES message id', m.ses_message_id], ['Created', fmt(m.created_at)], ['Sent', fmt(m.sent_at)],
-        ]),
-        m.text ? el('details', {}, [el('summary', { text: 'Text body' }), el('pre', { text: m.text })]) : null,
-        m.html ? el('details', {}, [el('summary', { text: 'HTML body (source)' }), el('pre', { text: m.html })]) : null,
-        el('h3', { text: `SES events (${m.events.length})` }),
-        table(['Time', 'Type', 'Payload'], m.events.map((ev) => el('tr', {}, [
-          el('td', { text: fmt(ev.created_at) }), el('td', {}, statusChip(ev.event_type.toLowerCase())),
-          el('td', {}, el('details', {}, [el('summary', { text: 'payload' }), el('pre', { text: JSON.stringify(ev.payload, null, 2) })])),
-        ])), 'No events yet. Delivery, bounce and complaint events arrive through the SNS webhook.'),
-      ]));
-      detail.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
     statusSel.addEventListener('change', loadEmails);
     let t; toInput.addEventListener('input', () => { clearTimeout(t); t = setTimeout(loadEmails, 300); });
+    const emailsCard = card('Recent emails', el('a', { href: `#/emails?project=${enc(slug)}&range=30d`, class: 'sub', text: 'Open in email log →' }), [
+      el('div', { class: 'filters', style: 'margin:0 0 8px' }, [statusSel, toInput, el('button', { class: 'small', text: 'Refresh', onclick: (e) => act(e.currentTarget, loadEmails) })]),
+      emails,
+    ], { desc: 'The latest 50. Click one to see it as the recipient does.' });
 
+    // ---- setup checklist, shown until the project has sent its first email
+    const stepsCard = el('section', { class: 'card', hidden: true });
+    const jump = (target, label) => el('button', { type: 'button', class: 'small', style: 'margin-top:6px', text: label, onclick: () => {
+      const n = typeof target === 'function' ? target() : target;
+      n.scrollIntoView({ behavior: 'smooth', block: 'center' }); if (n.focus) n.focus({ preventScroll: true });
+    } });
+    function renderSteps() {
+      const hasDomain = p.domains.length > 0;
+      const verified = domainRows.some((d) => d.identity?.verified);
+      const hasKey = p.api_keys.some((k) => !k.revoked_at);
+      const sent = emailCount > 0;
+      const steps = [
+        [hasDomain, 'Add a sending domain', 'The domain in your From address.', jump(domainInput, 'Go to domains ↓')],
+        [verified, 'Verify its DNS', 'Add the records shown under the domain, then Re-check.', jump(() => $('#domains details') || $('#domains'), 'Show DNS records ↓')],
+        [hasKey, 'Issue an API key', 'Your app authenticates with it.', jump(keyInput, 'Go to API keys ↓')],
+        [sent, 'Send a first email', 'Call POST /v1/emails from your app.', el('a', { href: '/docs', style: 'display:inline-block;margin-top:6px', text: 'Developer guide →' })],
+      ];
+      const current = steps.findIndex(([done]) => !done);
+      // Once a project has sent anything it is live: never nag it, even if a key was revoked since.
+      stepsCard.hidden = sent || current === -1 || emailCount == null && current === 3;
+      clear(stepsCard).append(
+        el('div', { class: 'card-head' }, [el('h2', { text: 'Get this project sending' }), el('span', { class: 'sub', text: `${steps.filter(([d]) => d).length} of ${steps.length} done` })]),
+        el('ol', { class: 'steps' }, steps.map(([done, title, text, action], i) => el('li', { class: done ? 'done' : i === current ? 'current' : '' }, [
+          el('strong', { text: title }), el('div', { text: text }), !done && i === current ? action : null,
+        ]))),
+      );
+    }
+
+    renderKeys();
     render(
-      el('div', { class: 'crumbs' }, [el('a', { href: '#/projects', text: 'Projects' }), ` / ${p.slug}`]),
-      card(p.name, el('span', {}, [el('code', { text: p.slug }), ` · config set `, el('code', { text: p.config_set }), ` · created ${fmt(p.created_at)}`]), [
-        el('h3', { text: 'Domains' }), ...domainsBody, domainForm,
-        el('h3', { text: 'API keys' }), keyTable, newKey, keyForm,
-        el('h3', { text: 'Templates' }), templateTable,
-      ]),
-      card('Recent emails', el('span', { class: 'actions' }, [statusSel, toInput, el('button', { class: 'small', text: 'Refresh', onclick: loadEmails }), el('a', { href: `#/emails?project=${encodeURIComponent(slug)}&range=30d`, class: 'sub', text: 'Open in email log →' })]), emails),
-      detail,
-      projectSettings(p),
+      el('div', { class: 'crumbs' }, [el('a', { href: '#/projects', text: 'Projects' }), ' / ', p.slug]),
+      pageHead(p.name, el('div', { class: 'meta' }, [
+        el('span', {}, ['slug ', el('code', { text: p.slug })]), el('span', {}, ['config set ', el('code', { text: p.config_set })]), el('span', { text: `created ${fmt(p.created_at)}` }),
+      ]), [el('a', { href: `/dashboard`, class: 'sub', text: 'Delivery stats →' })]),
+      stepsCard, domainsCard, keysCard, emailsCard, templatesCard, projectSettings(p),
     );
     await loadEmails();
   }
 
   /** Project settings: rename / change slug, and the delete danger zone. */
   function projectSettings(p) {
-    const path = `/admin/projects/${encodeURIComponent(p.slug)}`;
+    const path = `/admin/projects/${enc(p.slug)}`;
     const nameI = el('input', { type: 'text', value: p.name, required: true, maxlength: 200 });
-    const slugI = el('input', { type: 'text', value: p.slug, required: true, pattern: '[a-z0-9][a-z0-9-]{1,40}', title: 'lowercase letters, digits and dashes', spellcheck: 'false' });
+    const slugI = el('input', { type: 'text', value: p.slug, required: true, pattern: '[a-z0-9][a-z0-9\\-]{1,40}', title: '2–41 lowercase letters, digits and dashes', spellcheck: 'false' });
     const editForm = el('form', { class: 'row', onsubmit: (e) => {
       e.preventDefault();
       const body = {};
@@ -359,18 +444,18 @@
       act($('button', editForm), async () => {
         const up = await api('PATCH', path, body);
         flash = { msg: `Saved. The project is now ${up.name} (${up.slug}).`, ok: true };
-        const next = `#/projects/${encodeURIComponent(up.slug)}`;
+        const next = `#/projects/${enc(up.slug)}`;
         if (location.hash !== next) location.hash = next; else route();
       });
     } }, [
-      el('label', { class: 'field' }, ['Name', nameI]),
-      el('label', { class: 'field' }, ['Slug', slugI]),
-      el('label', { class: 'field' }, [' ', el('button', { class: 'primary', type: 'submit', text: 'Save changes' })]),
+      field('Name', nameI),
+      field('Slug', slugI),
+      el('label', { class: 'field narrow' }, [el('span', { 'aria-hidden': 'true', text: ' ' }), el('button', { type: 'submit', text: 'Save changes' })]),
     ]);
 
     const confirmI = el('input', { type: 'text', autocomplete: 'off', spellcheck: 'false', placeholder: p.slug, 'aria-label': `Type ${p.slug} to confirm` });
     const identities = p.domains.length ? el('input', { type: 'checkbox' }) : null;
-    const delBtn = el('button', { class: 'danger', type: 'submit', text: 'Delete this project', disabled: true });
+    const delBtn = el('button', { class: 'danger solid', type: 'submit', text: 'Delete this project', disabled: true });
     confirmI.addEventListener('input', () => { delBtn.disabled = confirmI.value.trim() !== p.slug; });
     const delForm = el('form', { class: 'row', onsubmit: (e) => {
       e.preventDefault();
@@ -379,7 +464,7 @@
         const q = new URLSearchParams({ confirm: p.slug });
         if (identities?.checked) q.set('delete_identities', 'true');
         const r = await api('DELETE', `${path}?${q}`);
-        const what = [`${r.emails} email${r.emails === 1 ? '' : 's'}`, `${r.templates} template${r.templates === 1 ? '' : 's'}`, `${r.api_keys} API key${r.api_keys === 1 ? '' : 's'}`];
+        const what = [plural(r.emails, 'email'), plural(r.templates, 'template'), plural(r.api_keys, 'API key')];
         if (r.domains.length) what.push(`domain${r.domains.length === 1 ? '' : 's'} ${r.domains.join(', ')}`);
         flash = r.warnings.length
           ? { msg: `Deleted ${r.deleted} (${what.join(', ')}), with warnings: ${r.warnings.join(' ')}`, ok: false }
@@ -388,7 +473,7 @@
       });
     } }, [
       el('label', { class: 'field' }, [el('span', {}, ['Type ', el('code', { text: p.slug }), ' to confirm']), confirmI]),
-      el('label', { class: 'field' }, [' ', delBtn]),
+      el('label', { class: 'field narrow' }, [el('span', { 'aria-hidden': 'true', text: ' ' }), delBtn]),
     ]);
 
     return card('Settings', null, [
@@ -444,10 +529,11 @@
   const LOG_KEYS = ['range', 'from', 'to', 'project', 'domain', 'status', 'recipient', 'subject', 'id'];
 
   async function emailsView(query) {
+    setTitle('Email log');
     const st = Object.fromEntries(LOG_KEYS.map((k) => [k, query.get(k) || '']));
     if (!st.range) st.range = '7d';
-    document.querySelector('main').classList.add('wide');
-    render(el('div', { class: 'card loading', text: 'Loading…' }));
+    document.body.classList.add('wide');
+    render(loadingCard());
     const { data: projects } = await get('/admin/projects');
 
     /** Keep the URL shareable without re-running the router (replaceState fires no hashchange). */
@@ -481,10 +567,11 @@
 
     const summary = el('div', { class: 'counts' });
     const list = el('div');
-    const more = el('div', { class: 'actions', style: 'margin-top:8px' });
+    const more = el('div', { class: 'actions', style: 'margin-top:10px' });
     const detail = el('div', { class: 'detail' });
-    const grid = el('div', { class: 'log-grid' }, [card('Emails', null, [summary, list, more]), detail]);
+    const grid = el('div', { class: 'log-grid' }, [el('section', { class: 'card' }, [summary, list, more]), detail]);
     let retentionDays = 90;
+    const filtered = () => ['project', 'domain', 'status', 'recipient', 'subject'].some((k) => st[k]);
 
     function applyDateLimits() {
       const today = dayStart(new Date());
@@ -513,9 +600,10 @@
       if (!append) {
         clear(summary).append(
           el('strong', { text: st.status
-            ? `${(res.counts[st.status] || 0).toLocaleString()} ${st.status} of ${res.total.toLocaleString()} email${res.total === 1 ? '' : 's'}`
-            : `${res.total.toLocaleString()} email${res.total === 1 ? '' : 's'}` }),
+            ? `${(res.counts[st.status] || 0).toLocaleString()} ${st.status} of ${plural(res.total, 'email')}`
+            : plural(res.total, 'email') }),
           el('span', { class: 'muted', text: ` · ${rangeLabel(st)}${retentionDays > 0 ? ` · kept ${retentionDays} days` : ''}` }),
+          el('span', { class: 'spacer' }),
           ...Object.keys(STATUS_CLASS).filter((s) => res.counts[s]).map((s) => el('button', {
             type: 'button', class: `chip ${STATUS_CLASS[s]}`, 'aria-pressed': String(st.status === s), title: st.status === s ? 'Show all statuses' : `Only ${s}`,
             text: `${s} ${res.counts[s].toLocaleString()}`,
@@ -523,9 +611,9 @@
           })),
         );
       }
-      const rows = res.data.map((m) => el('tr', { class: `clickable${m.id === st.id ? ' selected' : ''}`, 'data-id': m.id, onclick: () => openEmail(m.id) }, [
-        el('td', { text: fmt(m.created_at), title: fmtFull(m.created_at) }),
-        el('td', { class: 'wrap' }, [el('div', { text: m.from_domain }), el('div', { class: 'muted', style: 'font-size:11px', text: m.project })]),
+      const rows = res.data.map((m) => el('tr', { class: `clickable${m.id === st.id ? ' selected' : ''}`, 'data-id': m.id, tabindex: '0', onclick: () => openEmail(m.id), onkeydown: (e) => { if (e.key === 'Enter') openEmail(m.id); } }, [
+        el('td', { class: 'muted', text: fmt(m.created_at), title: fmtFull(m.created_at) }),
+        el('td', { class: 'wrap' }, [el('div', { text: m.from_domain }), el('div', { class: 'muted', style: 'font-size:11.5px', text: m.project })]),
         el('td', { class: 'wrap', text: m.to.join(', ') || (m.suppressed_recipients.length ? '(all suppressed)' : '') }),
         el('td', { class: 'wrap' }, [m.subject, m.attachment_count ? el('span', { class: 'muted', title: `${m.attachment_count} attachment(s)`, text: ` · ${m.attachment_count} file${m.attachment_count === 1 ? '' : 's'}` }) : null]),
         el('td', {}, statusChip(m.status)),
@@ -534,10 +622,12 @@
         const tbody = list.querySelector('tbody');
         if (tbody) tbody.append(...rows);
       } else {
-        clear(list).append(table(['Time', 'Domain', 'To', 'Subject', 'Status'], rows, 'No emails match these filters.'));
+        clear(list).append(table(['Time', 'Domain', 'To', 'Subject', 'Status'], rows, filtered()
+          ? [el('strong', { text: 'No emails match these filters' }), el('button', { class: 'small', style: 'margin-top:8px', text: 'Clear filters', onclick: resetFilters })]
+          : [el('strong', { text: `No emails ${st.range === 'custom' ? 'in this range' : rangeLabel(st).toLowerCase()}` }), 'Try a longer date range.']));
       }
       clear(more);
-      if (res.next_cursor) more.append(el('button', { class: 'small', text: 'Load more', onclick: (e) => act(e.target, () => load(true, res.next_cursor)) }));
+      if (res.next_cursor) more.append(el('button', { class: 'small', text: 'Load 50 more', onclick: (e) => act(e.currentTarget, () => load(true, res.next_cursor)) }));
     }
 
     async function openEmail(id) {
@@ -545,7 +635,7 @@
       list.querySelectorAll('tr.selected').forEach((r) => r.classList.remove('selected'));
       list.querySelector(`tr[data-id="${CSS.escape(id)}"]`)?.classList.add('selected');
       grid.classList.add('has-detail');
-      clear(detail).append(el('div', { class: 'card loading', text: 'Loading…' }));
+      clear(detail).append(loadingCard());
       let m;
       try { m = await get(`/admin/emails/${id}`); } catch (err) {
         clear(detail).append(card('Email not found', null, el('p', { class: 'sub', text: err.status === 404 ? `It may be older than the ${retentionDays}-day retention period.` : describe(err) })));
@@ -559,9 +649,9 @@
       const setFrame = () => clear(frameWrap).append(el('iframe', {
         src: `/admin/emails/${id}/preview${remote ? '?remote_images=1' : ''}`, sandbox: '', referrerpolicy: 'no-referrer', title: `Preview of ${m.subject}`,
       }));
-      const remoteNote = m.has_remote_images ? el('div', { class: 'notice' }, [
-        'Remote images are blocked so the preview does not count as an open for the sender’s trackers. ',
-        el('button', { class: 'small', text: 'Load remote images', onclick: (e) => { remote = true; setFrame(); e.target.closest('.notice').remove(); } }),
+      const remoteNote = m.has_remote_images ? el('div', { class: 'notice info actions', style: 'display:flex' }, [
+        el('span', { style: 'flex:1 1 240px', text: 'Remote images are blocked so the preview does not count as an open for the sender’s trackers.' }),
+        el('button', { class: 'small', text: 'Load remote images', onclick: (e) => { remote = true; setFrame(); e.currentTarget.closest('.notice').remove(); } }),
       ]) : null;
       setFrame();
 
@@ -591,20 +681,22 @@
       const paneHost = el('div');
       const tabs = el('div', { class: 'tabs-row', role: 'tablist' }, [['preview', 'Preview'], ['text', 'Text'], ['source', 'HTML source'], ['details', 'Details'], ['events', `Events (${m.events.length})`]].map(([k, label]) =>
         el('button', { type: 'button', role: 'tab', 'aria-selected': String(k === 'preview'), text: label, onclick: (e) => {
-          tabs.querySelectorAll('button').forEach((b) => b.setAttribute('aria-selected', String(b === e.target)));
+          tabs.querySelectorAll('button').forEach((b) => b.setAttribute('aria-selected', String(b === e.currentTarget)));
           clear(paneHost).append(...[].concat(panes[k]()).filter(Boolean));
         } })));
       clear(paneHost).append(...[].concat(panes.preview()).filter(Boolean));
 
       clear(detail).append(card(m.subject || '(no subject)', closeBtn, [
-        el('div', { class: 'sub' }, [statusChip(m.status), ` ${m.from} → ${m.to.join(', ') || '(no recipients)'}`]),
-        el('div', { class: 'muted', style: 'font-size:12px;margin-top:2px', text: `${fmtFull(m.created_at)} · ${m.project}` }),
+        el('div', { class: 'sub actions' }, [statusChip(m.status), el('span', { class: 'wrap', text: `${m.from} → ${m.to.join(', ') || '(no recipients)'}` })]),
+        el('div', { class: 'muted', style: 'font-size:12.5px;margin-top:4px', text: `${fmtFull(m.created_at)} · ${m.project}` }),
+        m.last_error ? el('div', { class: 'notice danger', text: m.last_error }) : null,
         attachments, tabs, paneHost,
       ]));
       if (window.innerWidth < 1100) detail.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
     const changed = () => { syncUrl(); load(); };
+    const resetFilters = () => { history.replaceState(null, '', '#/emails'); emailsView(new URLSearchParams()); };
     seg.addEventListener('click', (e) => {
       const b = e.target.closest('button[data-range]'); if (!b) return;
       st.range = b.dataset.range;
@@ -628,11 +720,12 @@
     }
 
     render(
-      card('Email log', el('span', { class: 'sub', text: 'Every email sent by every project. Click one to preview it.' }), [
+      pageHead('Email log', 'Every email from every project. Click one to see it as the recipient does. The address bar keeps your filters, so you can share a view.'),
+      el('section', { class: 'card' }, [
         el('div', { class: 'actions' }, [seg, custom]),
         el('div', { class: 'filters' }, [projectSel, domainSel, statusSel, recipientI, subjectI,
-          el('button', { class: 'small', text: 'Reset', onclick: () => { history.replaceState(null, '', '#/emails'); emailsView(new URLSearchParams()); } }),
-          el('button', { class: 'small', text: 'Refresh', onclick: () => load() })]),
+          el('button', { class: 'small ghost', text: 'Reset', onclick: resetFilters }),
+          el('button', { class: 'small', text: 'Refresh', onclick: (e) => act(e.currentTarget, () => load()) })]),
       ]),
       grid,
     );
@@ -642,58 +735,71 @@
   }
 
   async function suppressionsView() {
-    render(el('div', { class: 'card loading', text: 'Loading…' }));
+    setTitle('Suppressions');
+    render(loadingCard());
     const { data: projects } = await get('/admin/projects');
     const projectName = new Map(projects.map((p) => [p.id, p.slug]));
+    const reasonChip = (r) => chip(r, r === 'manual' ? '' : 'bad');
+    const removeBtn = (email, after) => confirmButton('Remove', async () => { await api('DELETE', `/admin/suppressions/${enc(email)}`); await after(); }, 'danger', 'Remove: allow sending again', `${email} can receive email again.`);
     const list = el('div');
     async function load(before) {
       const q = new URLSearchParams({ limit: '100' }); if (before) q.set('before', before);
       const { data, next_before } = await get(`/admin/suppressions?${q}`);
       const rows = data.map((s) => el('tr', {}, [
         el('td', { class: 'wrap' }, el('code', { text: s.email })),
-        el('td', {}, chip(s.reason, s.reason === 'manual' ? '' : 'bad')),
+        el('td', {}, reasonChip(s.reason)),
         el('td', { text: s.project_id ? (projectName.get(s.project_id) ?? s.project_id) : 'admin' }),
-        el('td', { class: 'sub wrap', text: s.note || '' }), el('td', { text: fmt(s.created_at) }),
-        el('td', {}, confirmButton('Remove', async () => { await api('DELETE', `/admin/suppressions/${encodeURIComponent(s.email)}`); load(); })),
+        el('td', { class: 'sub wrap', text: s.note || '' }), el('td', { class: 'muted', text: fmt(s.created_at) }),
+        el('td', { class: 'right' }, removeBtn(s.email, () => load())),
       ]));
-      clear(list).append(table(['Email', 'Reason', 'Added by', 'Note', 'When', ''], rows, 'The suppression list is empty.'));
-      if (next_before) list.append(el('div', { class: 'actions', style: 'margin-top:8px' }, el('button', { class: 'small', text: 'Older…', onclick: () => load(next_before) })));
+      clear(list).append(table(['Email', 'Reason', 'Added by', 'Note', 'When', { text: '', right: true }], rows,
+        [el('strong', { text: 'The suppression list is empty' }), 'Addresses that bounce or complain are added here automatically.']));
+      if (next_before) list.append(el('div', { class: 'actions', style: 'margin-top:10px' }, el('button', { class: 'small', text: 'Older…', onclick: (e) => act(e.currentTarget, () => load(next_before)) })));
     }
     const lookup = el('div');
+    const lookupI = el('input', { type: 'email', placeholder: 'someone@example.com', required: true, autocomplete: 'off' });
     const lookupForm = el('form', { class: 'row', onsubmit: (e) => {
       e.preventDefault();
-      const email = $('input', lookupForm).value.trim();
+      const email = lookupI.value.trim();
       act($('button', lookupForm), async () => {
         try {
-          const s = await get(`/admin/suppressions/${encodeURIComponent(email)}`);
-          clear(lookup).append(el('div', { class: 'notice' }, [el('strong', { text: s.email }), ' is suppressed: ', chip(s.reason, s.reason === 'manual' ? '' : 'bad'), ` ${s.note || ''} (${fmt(s.created_at)})`]));
+          const s = await get(`/admin/suppressions/${enc(email)}`);
+          clear(lookup).append(el('div', { class: 'notice warn' }, [
+            el('div', {}, [el('strong', { text: s.email }), ' is suppressed: no project can send to it. ', reasonChip(s.reason)]),
+            el('div', { class: 'sub', style: 'margin:4px 0 8px' }, `${s.note ? `${s.note} · ` : ''}added ${fmt(s.created_at)}`),
+            removeBtn(s.email, async () => { clear(lookup); await load(); }),
+          ]));
         } catch (err) {
-          if (err.status === 404) clear(lookup).append(el('div', { class: 'notice' }, [el('strong', { text: email }), ' is not suppressed.'])); else throw err;
+          if (err.status === 404) clear(lookup).append(el('div', { class: 'notice success' }, [el('strong', { text: email }), ' is not suppressed. Emails to it are sent normally.'])); else throw err;
         }
       });
-    } }, [el('input', { type: 'email', placeholder: 'someone@example.com', required: true }), el('button', { type: 'submit', text: 'Check' })]);
+    } }, [field('Email address', lookupI), el('label', { class: 'field narrow' }, [el('span', { 'aria-hidden': 'true', text: ' ' }), el('button', { type: 'submit', text: 'Check' })])]);
+    const addEmail = el('input', { type: 'email', placeholder: 'someone@example.com', required: true, autocomplete: 'off' });
+    const addNote = el('input', { type: 'text', placeholder: 'e.g. asked to stop receiving email', maxlength: 500 });
     const addForm = el('form', { class: 'row', onsubmit: (e) => {
       e.preventDefault();
-      const [emailI, noteI] = addForm.querySelectorAll('input');
-      act($('button', addForm), async () => { await api('POST', '/admin/suppressions', { email: emailI.value.trim(), note: noteI.value.trim() || undefined }); addForm.reset(); load(); }, 'Suppressed.');
-    } }, [el('input', { type: 'email', placeholder: 'someone@example.com', required: true }), el('input', { type: 'text', placeholder: 'note (optional)', maxlength: 500 }), el('button', { class: 'primary', type: 'submit', text: 'Suppress' })]);
+      act($('button', addForm), async () => { await api('POST', '/admin/suppressions', { email: addEmail.value.trim(), note: addNote.value.trim() || undefined }); addForm.reset(); await load(); }, 'Suppressed. No project can send to it now.');
+    } }, [field('Email address', addEmail), field('Note (optional)', addNote), el('label', { class: 'field narrow' }, [el('span', { 'aria-hidden': 'true', text: ' ' }), el('button', { class: 'primary', type: 'submit', text: 'Suppress' })])]);
     render(
-      card('Check an address', null, [lookupForm, lookup]),
-      card('Add a manual suppression', 'Admin entries belong to no project, so only an admin can remove them.', addForm),
-      card('Suppression list', 'Shared by every project. Removing a bounce or complaint entry lets all projects send to that address again.', list),
+      pageHead('Suppressions', 'Addresses no project will send to. Bounces and spam complaints land here automatically, so one project\'s bad addresses never hurt the others\' reputation.'),
+      el('div', { class: 'grid-2' }, [
+        card('Check an address', null, [lookupForm, lookup], { desc: 'Find out why someone is not getting email.' }),
+        card('Block an address', null, addForm, { desc: 'Admin entries belong to no project, so only an admin can remove them.' }),
+      ]),
+      card('Suppression list', null, list, { desc: 'Shared by every project. Removing a bounce or complaint entry lets all projects send to that address again.' }),
     );
     await load();
   }
 
   // ---- router ----
-  /** A message to show once the next view has rendered (route() clears the banner). */
+  /** A message to show once the next view has rendered (route() clears the toasts). */
   let flash = null;
   async function route() {
     const h = location.hash || '#/projects';
     const m = h.match(/^#\/projects\/([^/]+)$/);
     const current = h.startsWith('#/suppressions') ? 'suppressions' : h.startsWith('#/emails') ? 'emails' : 'projects';
-    document.querySelector('main').classList.remove('wide');
-    document.querySelectorAll('#nav a[data-route]').forEach((a) => a.setAttribute('aria-current', a.dataset.route === current ? 'page' : 'false'));
+    document.body.classList.remove('wide');
+    document.querySelectorAll('#nav a[data-route]').forEach((a) => { if (a.dataset.route === current) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
     banner(null);
     try {
       if (m) await projectView(decodeURIComponent(m[1]));
@@ -702,7 +808,10 @@
       else await projectsView();
       if (flash) { banner(flash.msg, flash.ok); flash = null; }
     } catch (err) {
-      if (err.status !== 401) render(el('div', { class: 'card' }, [el('h2', { text: 'Could not load' }), el('p', { class: 'sub', text: describe(err) })]));
+      if (err.status !== 401) render(el('div', { class: 'card' }, [
+        el('h2', { text: err.status === 404 ? 'Not found' : 'Could not load this page' }), el('p', { class: 'sub', text: describe(err) }),
+        el('div', { class: 'actions' }, [el('button', { class: 'small', text: 'Try again', onclick: route }), el('a', { href: '#/projects', class: 'sub', text: 'Back to projects' })]),
+      ]));
     }
   }
   window.addEventListener('hashchange', route);
